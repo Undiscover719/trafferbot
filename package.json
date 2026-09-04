@@ -1,0 +1,16 @@
+{
+  "name": "trafferbot",
+  "private": true,
+  "packageManager": "pnpm@9.1.1",
+  "scripts": {
+    "dev:bot": "pnpm --filter @trafferbot/bot dev",
+    "dev:admin": "pnpm --filter @trafferbot/admin dev",
+    "build": "pnpm -r build",
+    "db:generate": "pnpm --filter @trafferbot/db generate",
+    "db:migrate": "pnpm --filter @trafferbot/db migrate",
+    "db:seed": "pnpm --filter @trafferbot/db seed"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

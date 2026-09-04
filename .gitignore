@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.next/
+out/
+.env
+.env.*
+!.env.example
+*.log
+.turbo/
+*.pem
+*.crt
+ca.crt
+.DS_Store
+.claude/
+.idea/
+*.tsbuildinfo
+coverage/
