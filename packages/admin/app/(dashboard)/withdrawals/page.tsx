@@ -1,170 +1,172 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { fetcher, apiPatch } from "@/lib/fetcher";
+import { useState } from "react";
+import useSWR, { mutate } from "swr";
+import { fetcher } from "@/lib/fetcher";
+import { DataTable } from "@/components/data-table";
+import { ColumnDef } from "@tanstack/react-table";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { toast } from "sonner";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Check, X, ChevronLeft, ChevronRight, CheckCheck } from "lucide-react";
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 
 interface Withdrawal {
   id: number;
-  amount: string;
-  requisites: string;
+  userId: number;
+  amount: number;
+  method: string;
   status: string;
-  processNote: string | null;
+  details?: string;
   createdAt: string;
-  user: { id: number; firstName: string; username: string | null };
-  method: { name: string };
-  processor: { firstName: string } | null;
-}
-
-interface ListResponse {
-  items: Withdrawal[];
-  total: number;
-  page: number;
-  limit: number;
-}
-
-const STATUS_FILTERS = ["all", "pending", "approved", "rejected", "completed"] as const;
-const STATUS_LABELS: Record<string, string> = {
-  all: "Все",
-  pending: "Ожидание",
-  approved: "Одобрены",
-  rejected: "Отклонены",
-  completed: "Выполнены",
-};
-
-function statusVariant(status: string) {
-  if (status === "completed") return "default" as const;
-  if (status === "approved") return "secondary" as const;
-  if (status === "rejected") return "destructive" as const;
-  return "outline" as const;
+  user?: { username?: string; firstName?: string };
 }
 
 export default function WithdrawalsPage() {
-  const [data, setData] = useState<ListResponse | null>(null);
-  const [page, setPage] = useState(1);
-  const [status, setStatus] = useState<string>("pending");
+  const { data, isLoading } = useSWR<{ items: Withdrawal[]; total: number }>(
+    "/api/withdrawals",
+    fetcher
+  );
 
-  const load = () => {
-    const params = new URLSearchParams({ page: String(page), limit: "20" });
-    if (status !== "all") params.set("status", status);
-    fetcher<ListResponse>(`/api/withdrawals?${params}`).then(setData).catch(console.error);
+  const [selected, setSelected] = useState<Withdrawal | null>(null);
+  const [actionLoading, setActionLoading] = useState(false);
+
+  const handleAction = async (id: number, action: "approved" | "rejected") => {
+    setActionLoading(true);
+    try {
+      const res = await fetch("/api/withdrawals", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, status: action }),
+      });
+      if (!res.ok) throw new Error("Request failed");
+      toast.success(
+        action === "approved" ? "Withdrawal approved" : "Withdrawal rejected"
+      );
+      setSelected(null);
+      mutate("/api/withdrawals");
+    } catch {
+      toast.error("Action failed");
+    } finally {
+      setActionLoading(false);
+    }
   };
 
-  useEffect(() => { load(); }, [page, status]);
-
-  const process = async (id: number, result: "approved" | "rejected" | "completed") => {
-    await apiPatch("/api/withdrawals", { id, status: result });
-    load();
-  };
-
-  const totalPages = data ? Math.ceil(data.total / data.limit) : 0;
+  const columns: ColumnDef<Withdrawal>[] = [
+    { accessorKey: "id", header: "ID" },
+    {
+      header: "User",
+      cell: ({ row }) => {
+        const w = row.original;
+        return w.user?.username
+          ? `@${w.user.username}`
+          : (w.user?.firstName ?? `User ${w.userId}`);
+      },
+    },
+    {
+      accessorKey: "amount",
+      header: "Amount",
+      cell: ({ row }) => `$${row.original.amount.toFixed(2)}`,
+    },
+    { accessorKey: "method", header: "Method" },
+    {
+      accessorKey: "status",
+      header: "Status",
+      cell: ({ row }) => {
+        const status = row.original.status;
+        const variant =
+          status === "approved"
+            ? "default"
+            : status === "rejected"
+            ? "destructive"
+            : "secondary";
+        return (
+          <Badge variant={variant}>
+            {status.charAt(0).toUpperCase() + status.slice(1)}
+          </Badge>
+        );
+      },
+    },
+    {
+      accessorKey: "createdAt",
+      header: "Requested",
+      cell: ({ row }) =>
+        new Date(row.original.createdAt).toLocaleDateString("en-US"),
+    },
+    {
+      id: "actions",
+      header: "Actions",
+      cell: ({ row }) => (
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => setSelected(row.original)}
+        >
+          Review
+        </Button>
+      ),
+    },
+  ];
 
   return (
-    <div className="px-4 lg:px-6">
-      <h1 className="mb-6 text-xl font-semibold">Заявки на вывод</h1>
+    <div className="p-6 space-y-4">
+      <h1 className="text-2xl font-semibold">Withdrawals</h1>
+      <DataTable
+        columns={columns}
+        data={data?.items ?? []}
+        isLoading={isLoading}
+      />
 
-      <div className="mb-4 flex flex-wrap gap-2">
-        {STATUS_FILTERS.map((s) => (
-          <Button
-            key={s}
-            variant={status === s ? "default" : "outline"}
-            size="sm"
-            onClick={() => { setStatus(s); setPage(1); }}
-          >
-            {STATUS_LABELS[s]}
-          </Button>
-        ))}
-      </div>
+      <Dialog open={!!selected} onOpenChange={() => setSelected(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Review Withdrawal #{selected?.id}</DialogTitle>
+            <DialogDescription>
+              Requested by{" "}
+              {selected?.user?.username
+                ? `@${selected.user.username}`
+                : (selected?.user?.firstName ?? `User ${selected?.userId}`)}
+            </DialogDescription>
+          </DialogHeader>
 
-      {!data ? (
-        <div className="text-muted-foreground">Загрузка...</div>
-      ) : data.items.length === 0 ? (
-        <div className="text-muted-foreground">Нет заявок</div>
-      ) : (
-        <>
-          <div className="rounded-lg border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>#</TableHead>
-                  <TableHead>Пользователь</TableHead>
-                  <TableHead>Способ</TableHead>
-                  <TableHead className="text-right">Сумма</TableHead>
-                  <TableHead>Реквизиты</TableHead>
-                  <TableHead>Статус</TableHead>
-                  <TableHead>Дата</TableHead>
-                  <TableHead className="text-center">Действия</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {data.items.map((w) => (
-                  <TableRow key={w.id}>
-                    <TableCell>{w.id}</TableCell>
-                    <TableCell>
-                      {w.user.firstName}
-                      {w.user.username && (
-                        <span className="ml-1 text-muted-foreground">@{w.user.username}</span>
-                      )}
-                    </TableCell>
-                    <TableCell>{w.method.name}</TableCell>
-                    <TableCell className="text-right font-medium">
-                      {parseFloat(w.amount).toFixed(2)} ₽
-                    </TableCell>
-                    <TableCell className="max-w-48 truncate text-muted-foreground" title={w.requisites}>
-                      {w.requisites}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={statusVariant(w.status)}>{w.status}</Badge>
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {new Date(w.createdAt).toLocaleDateString("ru")}
-                    </TableCell>
-                    <TableCell className="text-center">
-                      {w.status === "pending" && (
-                        <div className="flex justify-center gap-1">
-                          <Button variant="ghost" size="sm" onClick={() => process(w.id, "approved")} title="Одобрить">
-                            <Check className="size-4 text-green-600" />
-                          </Button>
-                          <Button variant="ghost" size="sm" onClick={() => process(w.id, "rejected")} title="Отклонить">
-                            <X className="size-4 text-destructive" />
-                          </Button>
-                        </div>
-                      )}
-                      {w.status === "approved" && (
-                        <Button variant="ghost" size="sm" onClick={() => process(w.id, "completed")} title="Выполнено">
-                          <CheckCheck className="size-4 text-green-600" />
-                        </Button>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+          <div className="space-y-2 text-sm">
+            <div>
+              <span className="font-medium">Amount:</span>{" "}
+              ${selected?.amount?.toFixed(2)}
+            </div>
+            <div>
+              <span className="font-medium">Method:</span> {selected?.method}
+            </div>
+            {selected?.details && (
+              <div>
+                <span className="font-medium">Details:</span> {selected.details}
+              </div>
+            )}
           </div>
 
-          {totalPages > 1 && (
-            <div className="mt-4 flex items-center justify-center gap-2">
-              <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>
-                <ChevronLeft className="size-4" />
-              </Button>
-              <span className="text-sm text-muted-foreground">{page} / {totalPages}</span>
-              <Button variant="outline" size="sm" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>
-                <ChevronRight className="size-4" />
-              </Button>
-            </div>
-          )}
-        </>
-      )}
+          <DialogFooter className="gap-2">
+            <Button
+              variant="destructive"
+              disabled={actionLoading || selected?.status !== "pending"}
+              onClick={() => selected && handleAction(selected.id, "rejected")}
+            >
+              Reject
+            </Button>
+            <Button
+              disabled={actionLoading || selected?.status !== "pending"}
+              onClick={() => selected && handleAction(selected.id, "approved")}
+            >
+              Approve
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

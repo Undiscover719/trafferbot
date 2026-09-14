@@ -1,148 +1,91 @@
-"use client"
+"use client";
 
-import { useEffect, useState } from "react"
-import { fetcher } from "@/lib/fetcher"
-import { Badge } from "@/components/ui/badge"
+import useSWR from "swr";
+import { fetcher } from "@/lib/fetcher";
 import {
   Card,
-  CardAction,
   CardDescription,
   CardFooter,
   CardHeader,
   CardTitle,
-} from "@/components/ui/card"
-import {
-  UsersIcon,
-  FileTextIcon,
-  VideoIcon,
-  WalletIcon,
-  TrendingUpIcon,
-  CoinsIcon,
-} from "lucide-react"
+} from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 
-interface DashboardStats {
-  totalUsers: number
-  pendingApplications: number
-  pendingVideos: number
-  pendingWithdrawals: number
-  totalEarnings: string
-  totalWithdrawn: string
+interface Stats {
+  totalUsers: number;
+  totalApplications: number;
+  pendingApplications: number;
+  totalVideos: number;
+  pendingVideos: number;
+  totalWithdrawals: number;
+  pendingWithdrawals: number;
+  totalPayouts: number;
 }
 
 export function SectionCards() {
-  const [stats, setStats] = useState<DashboardStats | null>(null)
+  const { data, isLoading } = useSWR<Stats>("/api/stats", fetcher);
 
-  useEffect(() => {
-    fetcher<DashboardStats>("/api/stats").then(setStats).catch(console.error)
-  }, [])
+  const cards = [
+    {
+      title: "Total Users",
+      value: data?.totalUsers ?? 0,
+      description: "Registered bot users",
+    },
+    {
+      title: "Applications",
+      value: data?.totalApplications ?? 0,
+      description: `${data?.pendingApplications ?? 0} pending review`,
+    },
+    {
+      title: "Videos",
+      value: data?.totalVideos ?? 0,
+      description: `${data?.pendingVideos ?? 0} pending review`,
+    },
+    {
+      title: "Withdrawals",
+      value: data?.totalWithdrawals ?? 0,
+      description: `${data?.pendingWithdrawals ?? 0} pending approval`,
+    },
+    {
+      title: "Total Payouts",
+      value: `$${(data?.totalPayouts ?? 0).toFixed(2)}`,
+      description: "Approved withdrawal total",
+    },
+  ];
 
-  if (!stats) {
+  if (isLoading) {
     return (
-      <div className="grid grid-cols-1 gap-4 px-4 lg:px-6 @xl/main:grid-cols-2 @5xl/main:grid-cols-4">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <Card key={i} className="animate-pulse">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <Card key={i}>
             <CardHeader>
-              <CardDescription>&nbsp;</CardDescription>
-              <CardTitle className="text-2xl">&nbsp;</CardTitle>
+              <Skeleton className="h-4 w-24" />
+              <Skeleton className="h-8 w-16 mt-1" />
             </CardHeader>
+            <CardFooter>
+              <Skeleton className="h-3 w-32" />
+            </CardFooter>
           </Card>
         ))}
       </div>
-    )
+    );
   }
 
-  const pending = stats.pendingApplications + stats.pendingVideos + stats.pendingWithdrawals
-
   return (
-    <div className="grid grid-cols-1 gap-4 px-4 *:data-[slot=card]:bg-gradient-to-t *:data-[slot=card]:from-primary/5 *:data-[slot=card]:to-card *:data-[slot=card]:shadow-xs lg:px-6 @xl/main:grid-cols-2 @5xl/main:grid-cols-4 dark:*:data-[slot=card]:bg-card">
-      <Card className="@container/card">
-        <CardHeader>
-          <CardDescription>Пользователи</CardDescription>
-          <CardTitle className="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl">
-            {stats.totalUsers}
-          </CardTitle>
-          <CardAction>
-            <Badge variant="outline">
-              <UsersIcon />
-              Всего
-            </Badge>
-          </CardAction>
-        </CardHeader>
-        <CardFooter className="flex-col items-start gap-1.5 text-sm">
-          <div className="line-clamp-1 flex gap-2 font-medium">
-            Зарегистрировано в системе
-          </div>
-          <div className="text-muted-foreground">
-            Все трафферы и модераторы
-          </div>
-        </CardFooter>
-      </Card>
-      <Card className="@container/card">
-        <CardHeader>
-          <CardDescription>На модерации</CardDescription>
-          <CardTitle className="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl">
-            {pending}
-          </CardTitle>
-          <CardAction>
-            <Badge variant="outline">
-              <FileTextIcon />
-              Ожидание
-            </Badge>
-          </CardAction>
-        </CardHeader>
-        <CardFooter className="flex-col items-start gap-1.5 text-sm">
-          <div className="line-clamp-1 flex gap-2 font-medium">
-            {stats.pendingApplications} заявок, {stats.pendingVideos} видео, {stats.pendingWithdrawals} выводов
-          </div>
-          <div className="text-muted-foreground">
-            Требуют рассмотрения
-          </div>
-        </CardFooter>
-      </Card>
-      <Card className="@container/card">
-        <CardHeader>
-          <CardDescription>Общий заработок</CardDescription>
-          <CardTitle className="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl">
-            {parseFloat(stats.totalEarnings).toFixed(2)} &#8381;
-          </CardTitle>
-          <CardAction>
-            <Badge variant="outline">
-              <TrendingUpIcon />
-              Начислено
-            </Badge>
-          </CardAction>
-        </CardHeader>
-        <CardFooter className="flex-col items-start gap-1.5 text-sm">
-          <div className="line-clamp-1 flex gap-2 font-medium">
-            Сумма всех начислений <CoinsIcon className="size-4" />
-          </div>
-          <div className="text-muted-foreground">
-            За всё время работы
-          </div>
-        </CardFooter>
-      </Card>
-      <Card className="@container/card">
-        <CardHeader>
-          <CardDescription>Выведено</CardDescription>
-          <CardTitle className="text-2xl font-semibold tabular-nums @[250px]/card:text-3xl">
-            {parseFloat(stats.totalWithdrawn).toFixed(2)} &#8381;
-          </CardTitle>
-          <CardAction>
-            <Badge variant="outline">
-              <WalletIcon />
-              Выплачено
-            </Badge>
-          </CardAction>
-        </CardHeader>
-        <CardFooter className="flex-col items-start gap-1.5 text-sm">
-          <div className="line-clamp-1 flex gap-2 font-medium">
-            Завершённые выводы <VideoIcon className="size-4" />
-          </div>
-          <div className="text-muted-foreground">
-            Всего выплачено трафферам
-          </div>
-        </CardFooter>
-      </Card>
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+      {cards.map((card) => (
+        <Card key={card.title}>
+          <CardHeader>
+            <CardDescription>{card.title}</CardDescription>
+            <CardTitle className="text-2xl font-semibold tabular-nums">
+              {card.value}
+            </CardTitle>
+          </CardHeader>
+          <CardFooter>
+            <p className="text-xs text-muted-foreground">{card.description}</p>
+          </CardFooter>
+        </Card>
+      ))}
     </div>
-  )
+  );
 }

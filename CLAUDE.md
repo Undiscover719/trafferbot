@@ -277,6 +277,12 @@ hooks/
 - Protected by NextAuth session checks
 - Validate request bodies with Zod schemas from `@trafferbot/shared/validation`
 
+**UI language:**
+- **All admin panel UI strings are in English** — no localization layer exists in the admin package
+- Labels, button text, table headers, page titles, status badges, toast messages, empty states, confirmation dialogs, and error messages are all written directly as English string literals in JSX/TSX
+- There is no `t()` function or i18n system in the admin panel; hardcoded English strings are the correct and intentional pattern
+- When adding new UI to the admin panel, write strings directly in English — do not introduce a translation layer
+
 **Environment variables used:** `DATABASE_URL`, `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, `ADMIN_BASE_PATH`, `TELEGRAM_CLIENT_ID`, `TELEGRAM_CLIENT_SECRET`
 
 ---
@@ -341,18 +347,12 @@ hooks/
 - Middleware (`src/middlewares/auth.ts`) attaches the user to context
 - **All user-facing strings must go through `t()`** — no inline hardcoded text
 
-### i18n (bot)
-- `en.json` is the canonical locale — add all new message keys here first
-- Keys follow `domain.action` or `domain.entity.verb` naming (e.g., `application.submit.success`)
-- Use `{{placeholder}}` for dynamic values in message templates
-- `DEFAULT_LOCALE` and `SUPPORTED_LOCALES` are exported from `src/i18n/index.ts`
-- To add a new locale: create `src/i18n/locales/<lang>.json` mirroring `en.json`, add the code to `SUPPORTED_LOCALES`
-- `loadLocale()` falls back to `en` gracefully — never throws on unsupported locale
-- The `t()` function is typed against the English locale shape — TypeScript will catch missing keys
+### Admin Panel UI Strings
+- **English only, hardcoded directly in JSX/TSX** — this is the correct pattern for the admin package
+- No i18n or translation layer exists or should be introduced in the admin panel
+- All UI copy (labels, headings, buttons, status text, error messages, toasts, empty states) is written as plain English string literals
+- This applies to all components, pages, and API error messages surfaced to the UI
 
-### Naming
-- Files: `kebab-case.ts`
-- Classes: `PascalCase`
-- Functions/variables: `camelCase`
-- Constants: `SCREAMING_SNAKE_CASE` (e.g., `SETTINGS_KEYS`, `DEFAULT_LOCALE`, `SUPPORTED_LOCALES`)
-- DB schema tables: snake_case in SQL, camel
+### i18n (bot only)
+- `en.json` is the canonical locale — add all new message keys here first
+- Keys follow `domain.action` or `domain.entity.verb` naming (e.g., `application.submit

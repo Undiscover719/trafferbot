@@ -1,64 +1,35 @@
 import { NextResponse } from "next/server";
-import { auth } from "./auth";
-import { hasPermission, ADMIN_ROLES, SETTINGS_KEYS, loadPermissions, type UserRole } from "@trafferbot/shared";
-import { services } from "./services";
 
-async function ensurePermissionsLoaded() {
-  const dbPerms = await services.settings.get<Record<string, string[]>>(SETTINGS_KEYS.ROLE_PERMISSIONS);
-  if (dbPerms) loadPermissions(dbPerms);
+/**
+ * Returns a JSON success response.
+ */
+export function ok<T>(data: T, status = 200): NextResponse {
+  return NextResponse.json(data, { status });
 }
 
-export async function requireAuth(permission?: string) {
-  const session = await auth();
-  if (!session?.user) {
-    return { error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
-  }
-
-  // Load fresh permissions from DB
-  await ensurePermissionsLoaded();
-
-  // Always fetch fresh role from DB to prevent stale session exploits
-  const userId = parseInt((session.user as { id: string }).id, 10);
-  const dbUser = await services.users.findById(userId);
-  if (!dbUser) {
-    return { error: NextResponse.json({ error: "Unauthorized" }, { status: 401 }) };
-  }
-
-  const role = dbUser.role as UserRole;
-
-  // Non-admin roles have no access to admin panel at all
-  if (!ADMIN_ROLES.includes(role)) {
-    return { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) };
-  }
-
-  if (permission && !hasPermission(role, permission)) {
-    return { error: NextResponse.json({ error: "Forbidden" }, { status: 403 }) };
-  }
-
-  return {
-    user: {
-      id: dbUser.id,
-      role,
-      name: dbUser.firstName,
-    },
-  };
+/**
+ * Returns a JSON error response with a human-readable English message.
+ */
+export function err(message: string, status = 400): NextResponse {
+  return NextResponse.json({ error: message }, { status });
 }
 
-/** JSON-safe response that converts BigInt to string */
-export function jsonResponse(data: unknown, init?: ResponseInit) {
-  const body = JSON.stringify(data, (_key, value) =>
-    typeof value === "bigint" ? value.toString() : value
-  );
-  return new NextResponse(body, {
-    ...init,
-    headers: { "content-type": "application/json", ...init?.headers },
-  });
+/** 401 Unauthorized */
+export function unauthorized(): NextResponse {
+  return err("Unauthorized", 401);
 }
 
-export function paginate(url: URL) {
-  const page = parseInt(url.searchParams.get("page") ?? "1", 10);
-  const limit = Math.min(parseInt(url.searchParams.get("limit") ?? "20", 10), 100);
-  const search = url.searchParams.get("search") ?? undefined;
-  const status = url.searchParams.get("status") ?? undefined;
-  return { page, limit, search, status };
+/** 403 Forbidden */
+export function forbidden(): NextResponse {
+  return err("Forbidden", 403);
+}
+
+/** 404 Not Found */
+export function notFound(): NextResponse {
+  return err("Not found", 404);
+}
+
+/** 500 Internal Server Error */
+export function serverError(detail?: string): NextResponse {
+  return err(detail ?? "Internal server error", 500);
 }
