@@ -1,168 +1,192 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { fetcher, apiPost, apiPatch, apiDelete } from "@/lib/fetcher";
+import { useState } from "react";
+import useSWR, { mutate } from "swr";
+import { fetcher } from "@/lib/fetcher";
+import { DataTable } from "@/components/data-table";
+import { ColumnDef } from "@tanstack/react-table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
+import { Label } from "@/components/ui/label";
+import { toast } from "sonner";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Plus, Pencil, Trash2, Save, X } from "lucide-react";
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 
-interface Method {
+interface WithdrawalMethod {
   id: number;
   name: string;
-  minAmount: string;
+  description?: string;
   isActive: boolean;
+  createdAt: string;
 }
 
 export default function WithdrawalMethodsPage() {
-  const [methods, setMethods] = useState<Method[]>([]);
-  const [newName, setNewName] = useState("");
-  const [newMin, setNewMin] = useState("");
-  const [editId, setEditId] = useState<number | null>(null);
-  const [editName, setEditName] = useState("");
-  const [editMin, setEditMin] = useState("");
+  const { data, isLoading } = useSWR<{
+    items: WithdrawalMethod[];
+    total: number;
+  }>("/api/withdrawal-methods", fetcher);
 
-  const load = () => {
-    fetcher<Method[]>("/api/withdrawal-methods").then(setMethods).catch(console.error);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState<WithdrawalMethod | null>(null);
+  const [form, setForm] = useState({ name: "", description: "" });
+  const [saving, setSaving] = useState(false);
+
+  const openCreate = () => {
+    setEditTarget(null);
+    setForm({ name: "", description: "" });
+    setDialogOpen(true);
   };
 
-  useEffect(() => { load(); }, []);
-
-  const create = async () => {
-    if (!newName.trim() || !newMin) return;
-    await apiPost("/api/withdrawal-methods", { name: newName, minAmount: newMin });
-    setNewName("");
-    setNewMin("");
-    load();
+  const openEdit = (method: WithdrawalMethod) => {
+    setEditTarget(method);
+    setForm({ name: method.name, description: method.description ?? "" });
+    setDialogOpen(true);
   };
 
-  const update = async (id: number) => {
-    await apiPatch("/api/withdrawal-methods", { id, name: editName, minAmount: editMin });
-    setEditId(null);
-    load();
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const method = editTarget ? "PATCH" : "POST";
+      const body = editTarget ? { id: editTarget.id, ...form } : form;
+      const res = await fetch("/api/withdrawal-methods", {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error("Request failed");
+      toast.success(editTarget ? "Method updated" : "Method created");
+      setDialogOpen(false);
+      mutate("/api/withdrawal-methods");
+    } catch {
+      toast.error("Failed to save method");
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const toggleActive = async (m: Method) => {
-    await apiPatch("/api/withdrawal-methods", { id: m.id, isActive: !m.isActive });
-    load();
+  const handleDelete = async (id: number) => {
+    try {
+      const res = await fetch("/api/withdrawal-methods", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      if (!res.ok) throw new Error("Request failed");
+      toast.success("Method deleted");
+      mutate("/api/withdrawal-methods");
+    } catch {
+      toast.error("Failed to delete method");
+    }
   };
 
-  const remove = async (id: number) => {
-    if (!confirm("Удалить способ вывода?")) return;
-    await apiDelete("/api/withdrawal-methods", { id });
-    load();
-  };
+  const columns: ColumnDef<WithdrawalMethod>[] = [
+    { accessorKey: "id", header: "ID" },
+    { accessorKey: "name", header: "Name" },
+    {
+      accessorKey: "description",
+      header: "Description",
+      cell: ({ row }) => row.original.description ?? "—",
+    },
+    {
+      accessorKey: "isActive",
+      header: "Active",
+      cell: ({ row }) => (row.original.isActive ? "Yes" : "No"),
+    },
+    {
+      accessorKey: "createdAt",
+      header: "Created",
+      cell: ({ row }) =>
+        new Date(row.original.createdAt).toLocaleDateString("en-US"),
+    },
+    {
+      id: "actions",
+      header: "Actions",
+      cell: ({ row }) => (
+        <div className="flex gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => openEdit(row.original)}
+          >
+            Edit
+          </Button>
+          <Button
+            size="sm"
+            variant="destructive"
+            onClick={() => handleDelete(row.original.id)}
+          >
+            Delete
+          </Button>
+        </div>
+      ),
+    },
+  ];
 
   return (
-    <div className="px-4 lg:px-6">
-      <h1 className="mb-6 text-xl font-semibold">Способы вывода</h1>
-
-      <div className="mb-4 flex gap-2">
-        <Input
-          placeholder="Название (напр. USDT TRC-20)"
-          value={newName}
-          onChange={(e) => setNewName(e.target.value)}
-          className="max-w-xs"
-        />
-        <Input
-          type="number"
-          step="0.01"
-          placeholder="Мин. сумма"
-          value={newMin}
-          onChange={(e) => setNewMin(e.target.value)}
-          className="w-32"
-        />
-        <Button onClick={create}>
-          <Plus className="mr-1 size-4" /> Добавить
-        </Button>
+    <div className="p-6 space-y-4">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold">Withdrawal Methods</h1>
+        <Button onClick={openCreate}>Add Method</Button>
       </div>
 
-      <div className="rounded-lg border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>ID</TableHead>
-              <TableHead>Название</TableHead>
-              <TableHead className="text-right">Мин. сумма</TableHead>
-              <TableHead>Статус</TableHead>
-              <TableHead className="text-center">Действия</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {methods.map((m) => (
-              <TableRow key={m.id}>
-                <TableCell>{m.id}</TableCell>
-                <TableCell>
-                  {editId === m.id ? (
-                    <Input
-                      value={editName}
-                      onChange={(e) => setEditName(e.target.value)}
-                      className="h-8 w-48 text-xs"
-                    />
-                  ) : (
-                    m.name
-                  )}
-                </TableCell>
-                <TableCell className="text-right">
-                  {editId === m.id ? (
-                    <Input
-                      type="number"
-                      step="0.01"
-                      value={editMin}
-                      onChange={(e) => setEditMin(e.target.value)}
-                      className="ml-auto h-8 w-24 text-xs"
-                    />
-                  ) : (
-                    `${parseFloat(m.minAmount).toFixed(2)} ₽`
-                  )}
-                </TableCell>
-                <TableCell>
-                  <Badge
-                    variant={m.isActive ? "default" : "secondary"}
-                    className="cursor-pointer"
-                    onClick={() => toggleActive(m)}
-                  >
-                    {m.isActive ? "Активен" : "Неактивен"}
-                  </Badge>
-                </TableCell>
-                <TableCell className="text-center">
-                  {editId === m.id ? (
-                    <div className="flex justify-center gap-1">
-                      <Button variant="ghost" size="sm" onClick={() => update(m.id)}>
-                        <Save className="size-4" />
-                      </Button>
-                      <Button variant="ghost" size="sm" onClick={() => setEditId(null)}>
-                        <X className="size-4" />
-                      </Button>
-                    </div>
-                  ) : (
-                    <div className="flex justify-center gap-1">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => { setEditId(m.id); setEditName(m.name); setEditMin(m.minAmount); }}
-                      >
-                        <Pencil className="size-4" />
-                      </Button>
-                      <Button variant="ghost" size="sm" onClick={() => remove(m.id)}>
-                        <Trash2 className="size-4 text-destructive" />
-                      </Button>
-                    </div>
-                  )}
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
+      <DataTable
+        columns={columns}
+        data={data?.items ?? []}
+        isLoading={isLoading}
+      />
+
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {editTarget ? "Edit Method" : "Add Withdrawal Method"}
+            </DialogTitle>
+            <DialogDescription>
+              {editTarget
+                ? "Update the withdrawal method details."
+                : "Fill in the details for the new withdrawal method."}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-1">
+              <Label htmlFor="name">Name</Label>
+              <Input
+                id="name"
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                placeholder="Method name"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="description">Description</Label>
+              <Input
+                id="description"
+                value={form.description}
+                onChange={(e) =>
+                  setForm({ ...form, description: e.target.value })
+                }
+                placeholder="Optional description"
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSave} disabled={saving}>
+              {saving ? "Saving…" : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -1,107 +1,129 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { fetcher, apiPatch } from "@/lib/fetcher";
+import { useEffect, useState } from "react";
+import useSWR, { mutate } from "swr";
+import { fetcher } from "@/lib/fetcher";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Save } from "lucide-react";
-import {
-  ALL_PERMISSIONS,
-  PERMISSION_LABELS,
-  ADMIN_ROLES,
-  type UserRole,
-} from "@trafferbot/shared/constants";
+import { Label } from "@/components/ui/label";
+import { toast } from "sonner";
 
-const ROLE_LABELS: Record<string, string> = {
-  moderator: "Модератор",
-  financier: "Финансист",
-  owner: "Владелец",
-};
+const ROLES = ["owner", "financier", "moderator"] as const;
+const ALL_PERMISSIONS = [
+  "view_users",
+  "edit_users",
+  "view_applications",
+  "edit_applications",
+  "view_videos",
+  "edit_videos",
+  "view_withdrawals",
+  "edit_withdrawals",
+  "view_logs",
+  "view_stats",
+  "manage_platforms",
+  "manage_settings",
+  "manage_permissions",
+] as const;
 
-// Only editable roles (owner permissions are always full)
-const EDITABLE_ROLES = ADMIN_ROLES.filter((r) => r !== "owner");
-
-type Permissions = Record<string, string[]>;
+type Role = (typeof ROLES)[number];
+type Permission = (typeof ALL_PERMISSIONS)[number];
+type PermissionsMap = Record<Role, Permission[]>;
 
 export default function PermissionsPage() {
-  const [perms, setPerms] = useState<Permissions>({});
+  const { data, isLoading } = useSWR<{ permissions: PermissionsMap }>(
+    "/api/permissions",
+    fetcher
+  );
+
+  const [local, setLocal] = useState<PermissionsMap | null>(null);
   const [saving, setSaving] = useState(false);
-  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    fetcher<Permissions>("/api/permissions")
-      .then((data) => {
-        setPerms(data);
-        setLoaded(true);
-      })
-      .catch(console.error);
-  }, []);
-
-  const toggle = useCallback((role: string, permission: string) => {
-    setPerms((prev) => {
-      const current = prev[role] ?? [];
-      const has = current.includes(permission);
-      return {
-        ...prev,
-        [role]: has
-          ? current.filter((p) => p !== permission)
-          : [...current, permission],
-      };
-    });
-  }, []);
-
-  const save = async () => {
-    setSaving(true);
-    try {
-      await apiPatch("/api/permissions", perms);
-    } catch (e) {
-      console.error(e);
+    if (data?.permissions) {
+      setLocal(data.permissions as PermissionsMap);
     }
-    setSaving(false);
+  }, [data]);
+
+  const toggle = (role: Role, perm: Permission) => {
+    if (!local) return;
+    const current = local[role] ?? [];
+    const updated = current.includes(perm)
+      ? current.filter((p) => p !== perm)
+      : [...current, perm];
+    setLocal({ ...local, [role]: updated });
   };
 
-  if (!loaded) return <div className="px-4 lg:px-6">Загрузка...</div>;
+  const handleSave = async () => {
+    if (!local) return;
+    setSaving(true);
+    try {
+      const res = await fetch("/api/permissions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ permissions: local }),
+      });
+      if (!res.ok) throw new Error("Failed to save");
+      toast.success("Permissions saved");
+      mutate("/api/permissions");
+    } catch {
+      toast.error("Failed to save permissions");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (isLoading || !local) {
+    return (
+      <div className="p-6">
+        <p className="text-muted-foreground">Loading permissions…</p>
+      </div>
+    );
+  }
 
   return (
-    <div className="px-4 lg:px-6">
-      <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Права ролей</h1>
-        <Button onClick={save} disabled={saving}>
-          <Save className="mr-1 size-4" />
-          {saving ? "Сохранение..." : "Сохранить"}
+    <div className="p-6 space-y-6">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold">Role Permissions</h1>
+        <Button onClick={handleSave} disabled={saving}>
+          {saving ? "Saving…" : "Save Changes"}
         </Button>
       </div>
 
-      <div className="grid gap-4">
-        {EDITABLE_ROLES.map((role) => (
-          <Card key={role}>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">{ROLE_LABELS[role] ?? role}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {ALL_PERMISSIONS.map((perm) => {
-                  const checked = perms[role]?.includes(perm) ?? false;
-                  return (
-                    <label
-                      key={perm}
-                      className="flex items-center gap-2 cursor-pointer"
-                    >
-                      <Checkbox
-                        checked={checked}
-                        onCheckedChange={() => toggle(role, perm)}
-                      />
-                      <span className="text-sm">
-                        {PERMISSION_LABELS[perm] ?? perm}
-                      </span>
-                    </label>
-                  );
-                })}
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+      <div className="overflow-x-auto">
+        <table className="min-w-full text-sm border-collapse">
+          <thead>
+            <tr>
+              <th className="text-left py-2 pr-6 font-medium text-muted-foreground">
+                Permission
+              </th>
+              {ROLES.map((role) => (
+                <th
+                  key={role}
+                  className="text-center py-2 px-4 font-medium capitalize"
+                >
+                  {role.charAt(0).toUpperCase() + role.slice(1)}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {ALL_PERMISSIONS.map((perm) => (
+              <tr key={perm} className="border-t">
+                <td className="py-2 pr-6">
+                  <Label className="font-normal">{perm.replace(/_/g, " ")}</Label>
+                </td>
+                {ROLES.map((role) => (
+                  <td key={role} className="text-center py-2 px-4">
+                    <Checkbox
+                      checked={(local[role] ?? []).includes(perm)}
+                      onCheckedChange={() => toggle(role, perm)}
+                    />
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );

@@ -1,35 +1,17 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import type { UserRole } from "@trafferbot/shared/constants";
+import useSWR from "swr";
+import { fetcher } from "@/lib/fetcher";
 
-interface RoleCtx {
-  role: UserRole;
-  loading: boolean;
+interface MeResponse {
+  role: string;
 }
 
-const RoleContext = createContext<RoleCtx>({ role: "shnyr", loading: true });
-
-export function RoleProvider({ children }: { children: ReactNode }) {
-  const [role, setRole] = useState<UserRole>("shnyr");
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetch("/api/me")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (data?.role) setRole(data.role as UserRole);
-      })
-      .finally(() => setLoading(false));
-  }, []);
-
-  return (
-    <RoleContext.Provider value={{ role, loading }}>
-      {children}
-    </RoleContext.Provider>
-  );
-}
-
-export function useCurrentRole() {
-  return useContext(RoleContext);
+/**
+ * Returns the current authenticated user's role from the /api/me endpoint.
+ * Returns `null` while loading or if unauthenticated.
+ */
+export function useCurrentRole(): string | null {
+  const { data } = useSWR<MeResponse>("/api/me", fetcher);
+  return data?.role ?? null;
 }

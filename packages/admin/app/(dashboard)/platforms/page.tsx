@@ -1,168 +1,188 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { fetcher, apiPost, apiPatch, apiDelete } from "@/lib/fetcher";
+import { useState } from "react";
+import useSWR, { mutate } from "swr";
+import { fetcher } from "@/lib/fetcher";
+import { DataTable } from "@/components/data-table";
+import { ColumnDef } from "@tanstack/react-table";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
+import { Label } from "@/components/ui/label";
+import { toast } from "sonner";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Plus, Pencil, Trash2, Save, X } from "lucide-react";
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
 
 interface Platform {
   id: number;
   name: string;
-  icon: string | null;
+  slug: string;
   isActive: boolean;
+  createdAt: string;
 }
 
 export default function PlatformsPage() {
-  const [platforms, setPlatforms] = useState<Platform[]>([]);
-  const [newName, setNewName] = useState("");
-  const [newIcon, setNewIcon] = useState("");
-  const [editId, setEditId] = useState<number | null>(null);
-  const [editName, setEditName] = useState("");
-  const [editIcon, setEditIcon] = useState("");
+  const { data, isLoading } = useSWR<{ items: Platform[]; total: number }>(
+    "/api/platforms",
+    fetcher
+  );
 
-  const load = () => {
-    fetcher<Platform[]>("/api/platforms")
-      .then((data) => setPlatforms(data.sort((a, b) => a.id - b.id)))
-      .catch(console.error);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState<Platform | null>(null);
+  const [form, setForm] = useState({ name: "", slug: "" });
+  const [saving, setSaving] = useState(false);
+
+  const openCreate = () => {
+    setEditTarget(null);
+    setForm({ name: "", slug: "" });
+    setDialogOpen(true);
   };
 
-  useEffect(() => { load(); }, []);
-
-  const create = async () => {
-    if (!newName.trim()) return;
-    await apiPost("/api/platforms", { name: newName, icon: newIcon || undefined });
-    setNewName("");
-    setNewIcon("");
-    load();
+  const openEdit = (platform: Platform) => {
+    setEditTarget(platform);
+    setForm({ name: platform.name, slug: platform.slug });
+    setDialogOpen(true);
   };
 
-  const update = async (id: number) => {
-    await apiPatch("/api/platforms", { id, name: editName, icon: editIcon || null });
-    setEditId(null);
-    load();
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const method = editTarget ? "PATCH" : "POST";
+      const body = editTarget
+        ? { id: editTarget.id, ...form }
+        : form;
+      const res = await fetch("/api/platforms", {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error("Request failed");
+      toast.success(editTarget ? "Platform updated" : "Platform created");
+      setDialogOpen(false);
+      mutate("/api/platforms");
+    } catch {
+      toast.error("Failed to save platform");
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const toggleActive = async (p: Platform) => {
-    await apiPatch("/api/platforms", { id: p.id, isActive: !p.isActive });
-    setPlatforms((prev) =>
-      prev.map((item) => item.id === p.id ? { ...item, isActive: !item.isActive } : item)
-    );
+  const handleDelete = async (id: number) => {
+    try {
+      const res = await fetch("/api/platforms", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      if (!res.ok) throw new Error("Request failed");
+      toast.success("Platform deleted");
+      mutate("/api/platforms");
+    } catch {
+      toast.error("Failed to delete platform");
+    }
   };
 
-  const remove = async (id: number) => {
-    if (!confirm("Удалить платформу?")) return;
-    await apiDelete("/api/platforms", { id });
-    load();
-  };
+  const columns: ColumnDef<Platform>[] = [
+    { accessorKey: "id", header: "ID" },
+    { accessorKey: "name", header: "Name" },
+    { accessorKey: "slug", header: "Slug" },
+    {
+      accessorKey: "isActive",
+      header: "Active",
+      cell: ({ row }) => (row.original.isActive ? "Yes" : "No"),
+    },
+    {
+      accessorKey: "createdAt",
+      header: "Created",
+      cell: ({ row }) =>
+        new Date(row.original.createdAt).toLocaleDateString("en-US"),
+    },
+    {
+      id: "actions",
+      header: "Actions",
+      cell: ({ row }) => (
+        <div className="flex gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => openEdit(row.original)}
+          >
+            Edit
+          </Button>
+          <Button
+            size="sm"
+            variant="destructive"
+            onClick={() => handleDelete(row.original.id)}
+          >
+            Delete
+          </Button>
+        </div>
+      ),
+    },
+  ];
 
   return (
-    <div className="px-4 lg:px-6">
-      <h1 className="mb-6 text-xl font-semibold">Платформы</h1>
-
-      <div className="mb-4 flex gap-2">
-        <Input
-          placeholder="Название"
-          value={newName}
-          onChange={(e) => setNewName(e.target.value)}
-          className="max-w-xs"
-        />
-        <Input
-          placeholder="Иконка (эмодзи)"
-          value={newIcon}
-          onChange={(e) => setNewIcon(e.target.value)}
-          className="w-28"
-        />
-        <Button onClick={create}>
-          <Plus className="mr-1 size-4" /> Добавить
-        </Button>
+    <div className="p-6 space-y-4">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold">Platforms</h1>
+        <Button onClick={openCreate}>Add Platform</Button>
       </div>
 
-      <div className="rounded-lg border">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>ID</TableHead>
-              <TableHead>Иконка</TableHead>
-              <TableHead>Название</TableHead>
-              <TableHead>Статус</TableHead>
-              <TableHead className="text-center">Действия</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {platforms.map((p) => (
-              <TableRow key={p.id}>
-                <TableCell>{p.id}</TableCell>
-                <TableCell>
-                  {editId === p.id ? (
-                    <Input
-                      value={editIcon}
-                      onChange={(e) => setEditIcon(e.target.value)}
-                      className="h-8 w-16 text-xs"
-                    />
-                  ) : (
-                    p.icon ?? "—"
-                  )}
-                </TableCell>
-                <TableCell>
-                  {editId === p.id ? (
-                    <Input
-                      value={editName}
-                      onChange={(e) => setEditName(e.target.value)}
-                      className="h-8 w-40 text-xs"
-                    />
-                  ) : (
-                    p.name
-                  )}
-                </TableCell>
-                <TableCell>
-                  <Badge
-                    variant={p.isActive ? "default" : "secondary"}
-                    className="cursor-pointer"
-                    onClick={() => toggleActive(p)}
-                  >
-                    {p.isActive ? "Активна" : "Неактивна"}
-                  </Badge>
-                </TableCell>
-                <TableCell className="text-center">
-                  {editId === p.id ? (
-                    <div className="flex justify-center gap-1">
-                      <Button variant="ghost" size="sm" onClick={() => update(p.id)}>
-                        <Save className="size-4" />
-                      </Button>
-                      <Button variant="ghost" size="sm" onClick={() => setEditId(null)}>
-                        <X className="size-4" />
-                      </Button>
-                    </div>
-                  ) : (
-                    <div className="flex justify-center gap-1">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => { setEditId(p.id); setEditName(p.name); setEditIcon(p.icon ?? ""); }}
-                      >
-                        <Pencil className="size-4" />
-                      </Button>
-                      <Button variant="ghost" size="sm" onClick={() => remove(p.id)}>
-                        <Trash2 className="size-4 text-destructive" />
-                      </Button>
-                    </div>
-                  )}
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
+      <DataTable
+        columns={columns}
+        data={data?.items ?? []}
+        isLoading={isLoading}
+      />
+
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {editTarget ? "Edit Platform" : "Add Platform"}
+            </DialogTitle>
+            <DialogDescription>
+              {editTarget
+                ? "Update the platform details below."
+                : "Fill in the details for the new platform."}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-1">
+              <Label htmlFor="name">Name</Label>
+              <Input
+                id="name"
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                placeholder="Platform name"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="slug">Slug</Label>
+              <Input
+                id="slug"
+                value={form.slug}
+                onChange={(e) => setForm({ ...form, slug: e.target.value })}
+                placeholder="platform-slug"
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSave} disabled={saving}>
+              {saving ? "Saving…" : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
