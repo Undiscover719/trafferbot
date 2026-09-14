@@ -1,86 +1,203 @@
-import { readFileSync } from "fs";
+/**
+ * Lightweight i18n system for the TrafferBot Telegram bot.
+ *
+ * - Default locale: `en` (English)
+ * - Runtime locale is controlled by the `BOT_LOCALE` environment variable.
+ *   If the variable is unset or the requested locale file does not exist,
+ *   the system falls back to `en`.
+ * - Locale files live at `src/i18n/locales/<lang>.json`.
+ * - Template variables use the `{{placeholder}}` syntax.
+ * - The `t()` function is typed against the English locale shape so that
+ *   TypeScript catches unknown keys at compile time.
+ */
+
+import { readFileSync, existsSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
-export type Locale = "en";
+/** Recursive leaf → string shape extracted from the English locale file. */
+import type enJson from "./locales/en.json";
 
-export const DEFAULT_LOCALE: Locale = "en";
-
-type NestedRecord = { [key: string]: string | NestedRecord };
+export type LocaleShape = typeof enJson;
 
 /**
- * Loads and caches locale translation dictionaries.
+ * Dot-notation key union derived from the locale shape.
+ * E.g. "start.welcome_default" | "menu.already_member" | …
  */
-const cache = new Map<Locale, NestedRecord>();
+type DotPaths<T, Prefix extends string = ""> = {
+  [K in keyof T & string]: T[K] extends string
+    ? `${Prefix}${K}`
+    : T[K] extends Record<string, unknown>
+    ? DotPaths<T[K], `${Prefix}${K}.`>
+    : never;
+}[keyof T & string];
 
-function loadLocale(locale: Locale): NestedRecord {
-  if (cache.has(locale)) return cache.get(locale)!;
+export type LocaleKey = DotPaths<LocaleShape>;
 
-  const filePath = join(__dirname, "locales", `${locale}.json`);
-  const raw = readFileSync(filePath, "utf-8");
-  const parsed = JSON.parse(raw) as NestedRecord;
-  cache.set(locale, parsed);
-  return parsed;
+/** Template params — a plain string-value record. */
+export type LocaleParams = Record<string, string | number>;
+
+// ---------------------------------------------------------------------------
+// Locale loading
+// ---------------------------------------------------------------------------
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+const LOCALES_DIR = join(__dirname, "locales");
+
+/** Default / fallback locale tag. */
+export const DEFAULT_LOCALE = "en" as const;
+
+/** Currently loaded locale tag (resolved at startup). */
+let _currentLocale: string = DEFAULT_LOCALE;
+
+/** Flattened dot-notation key → template string map for fast lookups. */
+let _messages: Record<string, string> = {};
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Recursively flattens a nested JSON object into dot-notation keys.
+ *
+ * ```
+ * { menu: { welcome: "Hi" } }  →  { "menu.welcome": "Hi" }
+ * ```
+ */
+function flatten(
+  obj: Record<string, unknown>,
+  prefix = "",
+  out: Record<string, string> = {}
+): Record<string, string> {
+  for (const [key, value] of Object.entries(obj)) {
+    const fullKey = prefix ? `${prefix}.${key}` : key;
+    if (typeof value === "string") {
+      out[fullKey] = value;
+    } else if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+      flatten(value as Record<string, unknown>, fullKey, out);
+    }
+  }
+  return out;
 }
 
 /**
- * Resolves a dot-notation key from a nested object.
- * e.g. "start.welcome_default" → dictionary["start"]["welcome_default"]
+ * Loads and parses a locale JSON file.
+ * Returns `null` if the file cannot be found or parsed.
  */
-function resolvePath(dict: NestedRecord, key: string): string | null {
-  const parts = key.split(".");
-  let node: string | NestedRecord = dict;
+function loadLocaleFile(lang: string): Record<string, string> | null {
+  const filePath = join(LOCALES_DIR, `${lang}.json`);
+  if (!existsSync(filePath)) {
+    return null;
+  }
+  try {
+    const raw = readFileSync(filePath, "utf-8");
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    return flatten(parsed);
+  } catch (err) {
+    console.error(`[i18n] Failed to parse locale file "${filePath}":`, err);
+    return null;
+  }
+}
 
-  for (const part of parts) {
-    if (typeof node !== "object" || node === null) return null;
-    node = node[part];
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+/**
+ * Initialises the i18n system.
+ *
+ * Call once during bot startup **before** any handler is registered.
+ * Reads `BOT_LOCALE` from the environment; falls back to `"en"` if the
+ * requested locale file is missing.
+ *
+ * @param locale - Optional override (useful for tests). Falls back to
+ *                 `process.env.BOT_LOCALE` → `"en"`.
+ */
+export function loadLocale(locale?: string): void {
+  const requested = locale ?? process.env.BOT_LOCALE ?? DEFAULT_LOCALE;
+
+  // Try the requested locale first.
+  let messages = loadLocaleFile(requested);
+
+  if (messages) {
+    _currentLocale = requested;
+    _messages = messages;
+    console.log(`[i18n] Locale loaded: "${_currentLocale}"`);
+    return;
   }
 
-  return typeof node === "string" ? node : null;
+  // Warn and fall back to English.
+  if (requested !== DEFAULT_LOCALE) {
+    console.warn(
+      `[i18n] Locale "${requested}" not found — falling back to "${DEFAULT_LOCALE}".`
+    );
+  }
+
+  messages = loadLocaleFile(DEFAULT_LOCALE);
+  if (!messages) {
+    // This is a hard error; the English locale file must always exist.
+    throw new Error(
+      `[i18n] Default locale file "locales/${DEFAULT_LOCALE}.json" is missing. ` +
+        "Cannot start without a base locale."
+    );
+  }
+
+  _currentLocale = DEFAULT_LOCALE;
+  _messages = messages;
+  console.log(`[i18n] Locale loaded: "${_currentLocale}" (default)`);
 }
 
 /**
- * Interpolates `{{variable}}` placeholders in a translation string.
+ * Returns the currently active locale tag (e.g. `"en"`).
  */
-function interpolate(template: string, vars?: Record<string, string | number>): string {
-  if (!vars) return template;
-  return template.replace(/\{\{(\w+)\}\}/g, (_, key) => {
-    const val = vars[key];
-    return val !== undefined ? String(val) : `{{${key}}}`;
-  });
+export function getCurrentLocale(): string {
+  return _currentLocale;
 }
 
 /**
- * Translate a key with optional interpolation variables.
+ * Typed translation function.
  *
- * @param key  Dot-notation path, e.g. "start.welcome_default"
- * @param vars Optional interpolation variables
- * @param locale Locale to use (defaults to DEFAULT_LOCALE)
- * @returns Translated string, or the key itself if not found
+ * Resolves a dot-notation key against the loaded locale and interpolates
+ * any `{{placeholder}}` variables from `params`.
+ *
+ * ```ts
+ * t("menu.already_member")
+ * // → "✅ You are already on the team!"
+ *
+ * t("menu.balance_text", { balance: "100 USD", totalEarned: "500 USD" })
+ * // → "💰 *Your balance:* 100 USD\n📈 *Total earned:* 500 USD\n…"
+ * ```
+ *
+ * @param key    - A dot-notation key from the English locale (type-checked).
+ * @param params - Optional substitution map for `{{placeholder}}` tokens.
+ * @returns The translated (and interpolated) string, or the raw key if not found.
  */
-export function t(
-  key: string,
-  vars?: Record<string, string | number>,
-  locale: Locale = DEFAULT_LOCALE
-): string {
-  const dict = loadLocale(locale);
-  const raw = resolvePath(dict, key);
+export function t(key: LocaleKey, params?: LocaleParams): string {
+  if (Object.keys(_messages).length === 0) {
+    // Locale not yet loaded — auto-load the default so that the function is
+    // safe to call in module-level code or tests without explicit init.
+    loadLocale(DEFAULT_LOCALE);
+  }
 
-  if (raw === null) {
-    console.warn(`[i18n] Missing translation key: "${key}" for locale "${locale}"`);
+  let message = _messages[key];
+
+  if (message === undefined) {
+    console.warn(`[i18n] Missing translation key: "${key}"`);
     return key;
   }
 
-  return interpolate(raw, vars);
-}
-
-/**
- * Pre-loads all supported locales into the cache at startup.
- */
-export function preloadLocales(locales: Locale[] = [DEFAULT_LOCALE]): void {
-  for (const locale of locales) {
-    loadLocale(locale);
+  if (params) {
+    message = message.replace(/\{\{(\w+)\}\}/g, (_match, name: string) => {
+      const val = params[name];
+      return val !== undefined ? String(val) : `{{${name}}}`;
+    });
   }
+
+  return message;
 }

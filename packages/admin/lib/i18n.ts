@@ -1,42 +1,84 @@
 /**
- * i18n configuration for the admin panel.
+ * Admin panel i18n configuration.
  *
- * The admin panel is English-only by default. This module exports locale
- * constants so they can be consumed consistently across server components,
- * client components, and API routes without duplicating magic strings.
+ * The admin panel is a server-rendered Next.js application.  All UI strings
+ * are written directly in English (the canonical language of the project).
+ * This module centralises the locale constant so that it can be consumed by:
  *
- * When additional locales are needed:
- *  1. Add the locale code to SUPPORTED_LOCALES.
- *  2. Extend the middleware (middleware.ts) with Accept-Language negotiation.
- *  3. Add translation files under `locales/<code>.json` (or use a library
- *     such as `next-intl`).
+ *  - The root `<html lang="...">` attribute in `app/layout.tsx`
+ *  - Any future server-side date/number formatting utilities
+ *  - Any future i18n middleware or Accept-Language negotiation
+ *
+ * If you later add a full i18n library (next-intl, i18next, …) this file is
+ * the right place to bootstrap it.
  */
 
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+/** Default / canonical locale for the admin panel. */
 export const DEFAULT_LOCALE = "en" as const;
 
-export const SUPPORTED_LOCALES = ["en"] as const;
+/**
+ * BCP-47 language tag used for the `<html lang>` attribute and
+ * `Intl.*` constructors throughout the admin panel.
+ *
+ * Reads `NEXT_PUBLIC_ADMIN_LOCALE` from the environment so that operators
+ * can override it without a code change.  Falls back to `"en"`.
+ */
+export const LOCALE: string =
+  process.env.NEXT_PUBLIC_ADMIN_LOCALE ?? DEFAULT_LOCALE;
 
-export type SupportedLocale = (typeof SUPPORTED_LOCALES)[number];
+// ---------------------------------------------------------------------------
+// Formatting helpers
+// ---------------------------------------------------------------------------
 
 /**
- * Returns the locale from the `x-locale` header injected by the middleware,
- * falling back to the default locale if the header is absent or unsupported.
+ * Formats a numeric currency value as a locale-aware string.
  *
- * Intended for use in server components / route handlers:
- *
- * ```ts
- * import { headers } from "next/headers";
- * import { getLocaleFromHeaders } from "@/lib/i18n";
- *
- * const locale = getLocaleFromHeaders(await headers());
- * ```
+ * @example
+ * formatAmount(1234.5)  // → "1,234.50" (en)
  */
-export function getLocaleFromHeaders(
-  headersList: Headers | { get(name: string): string | null }
-): SupportedLocale {
-  const raw = headersList.get("x-locale");
-  if (raw && (SUPPORTED_LOCALES as readonly string[]).includes(raw)) {
-    return raw as SupportedLocale;
-  }
-  return DEFAULT_LOCALE;
+export function formatAmount(
+  value: number,
+  options?: Intl.NumberFormatOptions
+): string {
+  return new Intl.NumberFormat(LOCALE, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+    ...options,
+  }).format(value);
+}
+
+/**
+ * Formats a `Date` (or ISO string) as a locale-aware date string.
+ *
+ * @example
+ * formatDate(new Date("2024-06-01"))  // → "6/1/2024" (en)
+ */
+export function formatDate(
+  value: Date | string,
+  options?: Intl.DateTimeFormatOptions
+): string {
+  const date = typeof value === "string" ? new Date(value) : value;
+  return new Intl.DateTimeFormat(LOCALE, options).format(date);
+}
+
+/**
+ * Formats a `Date` (or ISO string) as a locale-aware date-time string.
+ *
+ * @example
+ * formatDateTime(new Date("2024-06-01T14:30:00Z"))
+ * // → "6/1/2024, 2:30:00 PM" (en)
+ */
+export function formatDateTime(
+  value: Date | string,
+  options?: Intl.DateTimeFormatOptions
+): string {
+  return formatDate(value, {
+    dateStyle: "short",
+    timeStyle: "medium",
+    ...options,
+  });
 }
