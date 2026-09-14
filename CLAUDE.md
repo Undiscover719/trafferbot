@@ -161,25 +161,43 @@ export class SomeService {
 | `src/notification-poller.ts` | Polls `NotificationService` for pending notifications, delivers them |
 | `src/utils/notify-admins.ts` | Utility to message admin users |
 | `src/i18n/index.ts` | i18n entry point — exports `t()` lookup function and locale loader |
-| `src/i18n/locales/en.json` | Default English locale message file |
+| `src/i18n/locales/en.json` | Default English locale message file (canonical source of truth) |
 
 **i18n System (bot):**
 
-The bot uses a lightweight custom i18n system with typed message key lookup:
+The bot uses a lightweight custom i18n system with typed message key lookup.
 
-- **Locale files** live at `src/i18n/locales/<lang>.json` (e.g., `en.json`)
-- **Default locale:** `en` (English)
+**Architecture:**
+- **Locale files** live at `src/i18n/locales/<lang>.json` (e.g., `en.json`, `ru.json`)
+- **Default locale:** `en` (English) — `en.json` is the canonical source of truth for all message keys
 - **`t(key, params?)`** — typed translation function; resolves dot-notation keys (e.g., `t('menu.welcome')`) against the loaded locale
-- Locale is loaded once at startup; switching locales requires a restart or explicit reload
-- Message files are plain JSON with nested objects; keys follow `domain.action` or `domain.entity.action` conventions
+- Locale is loaded once at startup via the `BOT_LOCALE` environment variable (defaults to `en`)
+- Switching locales requires a restart or explicit reload
+- The `t()` function is typed against the English locale shape — TypeScript will catch missing keys at compile time
+
+**Message file format:**
+- Plain JSON with nested objects
+- Keys follow `domain.action` or `domain.entity.verb` conventions (e.g., `application.submit.success`)
 - Template variables use `{{placeholder}}` syntax (e.g., `"Hello, {{name}}"`)
+
+**Locale configuration and defaults (established pattern):**
+- `src/i18n/index.ts` exports:
+  - `loadLocale(lang?: string): void` — loads the locale file for the given language code; falls back to `en` if the file is missing or the language is unsupported
+  - `t(key: string, params?: Record<string, string | number>): string` — typed lookup with `{{placeholder}}` interpolation
+  - `DEFAULT_LOCALE = 'en'` — exported constant for the default locale
+  - `SUPPORTED_LOCALES: string[]` — exported array of all available locale codes (derived from files present in `locales/`)
+- Fallback behavior: if `BOT_LOCALE` specifies an unsupported locale, `loadLocale` logs a warning and falls back to `en` without throwing
+- Locale loading is synchronous at startup; the loaded messages object is module-level state
+
+**Rules:**
 - All user-facing bot strings must use `t()` — **no hardcoded message strings** in handlers, scenes, or keyboards
-- The locale used at runtime is determined by the `BOT_LOCALE` environment variable (defaults to `en`)
+- Add new message strings to `en.json` first; other locale files must mirror the same key structure
+- To add a new locale: create `src/i18n/locales/<lang>.json` mirroring `en.json`, then add the language code to `SUPPORTED_LOCALES`
 
 **Startup sequence:**
 1. Load `.env` from repo root
 2. Validate `BOT_TOKEN` and `DATABASE_URL`
-3. Load locale via i18n module (respects `BOT_LOCALE`, falls back to `en`)
+3. Load locale via `loadLocale(process.env.BOT_LOCALE)` — falls back to `en` if unset or unsupported
 4. Call `createBot()` to build Telegraf instance
 5. Create `db`, `NotificationService`, `SettingsService`
 6. Load role permissions from DB
@@ -254,9 +272,10 @@ hooks/
 - `lib/auth.ts` configures the provider and session callbacks
 
 **API routes pattern:**
-- Each route imports services from `lib/services.ts`
+- Each route imports services from `lib/services.ts` (not inline)
 - Uses `api-helpers.ts` for consistent JSON responses and error handling
 - Protected by NextAuth session checks
+- Validate request bodies with Zod schemas from `@trafferbot/shared/validation`
 
 **Environment variables used:** `DATABASE_URL`, `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, `ADMIN_BASE_PATH`, `TELEGRAM_CLIENT_ID`, `TELEGRAM_CLIENT_SECRET`
 
@@ -323,71 +342,17 @@ hooks/
 - **All user-facing strings must go through `t()`** — no inline hardcoded text
 
 ### i18n (bot)
-- Add new message strings to `src/i18n/locales/en.json` first (English is canonical)
+- `en.json` is the canonical locale — add all new message keys here first
 - Keys follow `domain.action` or `domain.entity.verb` naming (e.g., `application.submit.success`)
 - Use `{{placeholder}}` for dynamic values in message templates
-- To add a new locale: create `src/i18n/locales/<lang>.json` mirroring the `en.json` structure
+- `DEFAULT_LOCALE` and `SUPPORTED_LOCALES` are exported from `src/i18n/index.ts`
+- To add a new locale: create `src/i18n/locales/<lang>.json` mirroring `en.json`, add the code to `SUPPORTED_LOCALES`
+- `loadLocale()` falls back to `en` gracefully — never throws on unsupported locale
 - The `t()` function is typed against the English locale shape — TypeScript will catch missing keys
 
 ### Naming
 - Files: `kebab-case.ts`
 - Classes: `PascalCase`
 - Functions/variables: `camelCase`
-- Constants: `SCREAMING_SNAKE_CASE` (e.g., `SETTINGS_KEYS`)
-- DB schema tables: snake_case in SQL, camelCase in TypeScript schema objects
-- i18n locale files: lowercase language code (e.g., `en.json`, `ru.json`)
-
-### Environment
-- Single `.env` file at repo root, loaded by each package as needed
-- Bot loads via `dotenv` with explicit path to `../../../.env`
-- Admin uses Next.js built-in env loading
-
----
-
-## Development Workflow
-
-### Prerequisites
-- Node.js 20+
-- pnpm 9+
-- PostgreSQL 16+ (or Docker)
-
-### Initial Setup
-```bash
-git clone <repo>
-cd trafferbot
-pnpm install
-cp .env.example .env
-# Fill in .env variables
-docker compose up -d        # Start PostgreSQL
-pnpm db:migrate             # Run migrations
-pnpm db:seed                # Seed owner user + defaults
-```
-
-### Running Locally
-```bash
-pnpm dev:bot    # tsx watch on packages/bot/src/index.ts
-pnpm dev:admin  # next dev --turbopack -p 80
-```
-
-Admin panel: `http://localhost:80` (or `http://localhost/ADMIN_BASE_PATH`)
-
-### Database Operations
-```bash
-pnpm db:generate   # Generate new migration from schema changes
-pnpm db:migrate    # Apply migrations
-pnpm db:seed       # Re-seed (idempotent for owner)
-```
-
-### Build
-```bash
-pnpm build         # Builds all packages (pnpm -r build)
-```
-
-### Root Scripts Reference
-| Script | Command |
-|---|---|
-| `dev:bot` | `pnpm --filter @trafferbot/bot dev` |
-| `dev:admin` | `pnpm --filter @trafferbot/admin dev` |
-| `build` | `pnpm -r build` |
-| `db:generate` | `pnpm --filter @trafferbot/db generate` |
-| `db:migrate` | `
+- Constants: `SCREAMING_SNAKE_CASE` (e.g., `SETTINGS_KEYS`, `DEFAULT_LOCALE`, `SUPPORTED_LOCALES`)
+- DB schema tables: snake_case in SQL, camel
