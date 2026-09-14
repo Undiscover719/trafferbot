@@ -2,6 +2,7 @@ import type { Telegraf } from "telegraf";
 import type { BotContext } from "../context";
 import { getMainKeyboard, type MemberStatus } from "../keyboards/main";
 import { ADMIN_ROLES, SETTINGS_KEYS, type UserRole } from "@trafferbot/shared";
+import { t } from "../i18n/index";
 
 export async function getMemberStatus(ctx: BotContext): Promise<MemberStatus> {
   if (!ctx.dbUser) return "new";
@@ -40,11 +41,11 @@ export function registerStartHandler(bot: Telegraf<BotContext>) {
     );
     const status = await getMemberStatus(ctx);
 
-    let text = welcomeText || "Добро пожаловать! 🎬";
+    let text = welcomeText || t("start.welcome_default");
     if (status === "new") {
-      text += "\n\nДля начала работы подайте заявку на вступление.";
+      text += t("start.new_hint");
     } else if (status === "pending") {
-      text += "\n\n⏳ Ваша заявка на рассмотрении. Ожидайте решения администратора.";
+      text += t("start.pending_hint");
     }
 
     await ctx.reply(

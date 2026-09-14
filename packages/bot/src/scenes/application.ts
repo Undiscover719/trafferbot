@@ -1,148 +1,115 @@
 import { Scenes, Markup } from "telegraf";
 import type { BotContext } from "../context";
-import { getMainKeyboard } from "../keyboards/main";
-import { getMemberStatus } from "../handlers/start";
-import { type UserRole } from "@trafferbot/shared";
-import { notifyAdmins } from "../utils/notify-admins";
+import { t } from "../i18n/index";
 
 export const applicationScene = new Scenes.WizardScene<BotContext>(
   "application",
 
-  // Step 1: Select platform
+  // Step 0 — select platform
   async (ctx) => {
-    const platforms = await ctx.services.platforms.getAll(true);
-    if (platforms.length === 0) {
-      await ctx.reply("❌ Нет доступных платформ. Попробуйте позже.");
+    if (!ctx.dbUser) return ctx.scene.leave();
+
+    // Guard: already pending or approved
+    const pending = await ctx.services.applications.findPendingByUser(ctx.dbUser.id);
+    if (pending) {
+      await ctx.reply(t("application.already_pending"));
+      return ctx.scene.leave();
+    }
+    const approved = await ctx.services.applications.findApprovedByUser(ctx.dbUser.id);
+    if (approved) {
+      await ctx.reply(t("application.already_approved"));
       return ctx.scene.leave();
     }
 
-    const buttons = platforms.map((p) => [
-      Markup.button.callback(`${p.icon ?? ""} ${p.name}`, `platform_${p.id}`),
-    ]);
-    buttons.push([Markup.button.callback("❌ Отмена", "cancel")]);
+    const platforms = await ctx.services.platforms.list();
+    if (!platforms.length) {
+      await ctx.reply(t("application.no_platforms"));
+      return ctx.scene.leave();
+    }
 
-    await ctx.reply(
-      "📝 *Подача заявки на вступление*\n\nВыберите платформу, на которой вы работаете:",
-      {
-        parse_mode: "Markdown",
-        ...Markup.inlineKeyboard(buttons),
-      }
-    );
+    const buttons = platforms.map((p) => [Markup.button.callback(p.name, `platform_${p.id}`)]);
+    await ctx.reply(t("application.prompt_platform"), Markup.inlineKeyboard(buttons));
+
     return ctx.wizard.next();
   },
 
-  // Step 2: Enter channel URL
+  // Step 1 — receive platform selection, ask for links
   async (ctx) => {
-    if (!ctx.callbackQuery || !("data" in ctx.callbackQuery)) return;
+    if (!ctx.callbackQuery || !("data" in ctx.callbackQuery)) {
+      await ctx.reply(t("application.prompt_platform"));
+      return;
+    }
 
     const data = ctx.callbackQuery.data;
-    await ctx.answerCbQuery();
-
-    if (data === "cancel") {
-      await ctx.reply("❌ Заявка отменена.");
-      return ctx.scene.leave();
-    }
+    if (!data.startsWith("platform_")) return;
 
     const platformId = parseInt(data.replace("platform_", ""), 10);
-    if (isNaN(platformId)) return;
+    ctx.scene.session.platformId = platformId;
 
-    (ctx.wizard.state as Record<string, unknown>).platformId = platformId;
+    await ctx.answerCbQuery();
+    await ctx.reply(t("application.prompt_links"));
 
-    await ctx.reply("🔗 Отправьте ссылку на ваш канал/профиль:");
     return ctx.wizard.next();
   },
 
-  // Step 3: Channel URL → ask about self
+  // Step 2 — receive links, ask for comment
   async (ctx) => {
     if (!ctx.message || !("text" in ctx.message)) {
-      await ctx.reply("❌ Пожалуйста, отправьте ссылку текстом.");
+      await ctx.reply(t("application.prompt_links"));
       return;
     }
 
-    const url = ctx.message.text.trim();
+    ctx.scene.session.links = ctx.message.text;
+    await ctx.reply(
+      t("application.prompt_comment"),
+      Markup.keyboard([[t("application.skip_button")]]).oneTime().resize()
+    );
+
+    return ctx.wizard.next();
+  },
+
+  // Step 3 — receive comment (or skip), submit application
+  async (ctx) => {
+    if (!ctx.dbUser) return ctx.scene.leave();
+    if (!ctx.message || !("text" in ctx.message)) {
+      await ctx.reply(t("application.prompt_comment"));
+      return;
+    }
+
+    const comment =
+      ctx.message.text === t("application.skip_button") ? null : ctx.message.text;
+
     try {
-      new URL(url);
+      const application = await ctx.services.applications.create({
+        userId: ctx.dbUser.id,
+        platformId: ctx.scene.session.platformId,
+        links: ctx.scene.session.links,
+        comment,
+      });
+
+      const platform = await ctx.services.platforms.getById(application.platformId);
+
+      await ctx.reply(
+        t("application.submitted", {
+          id: application.id,
+          platform: platform?.name ?? String(application.platformId),
+        }),
+        { reply_markup: { remove_keyboard: true } }
+      );
     } catch {
-      await ctx.reply("❌ Некорректная ссылка. Попробуйте ещё раз:");
-      return;
+      await ctx.reply(t("application.error"), {
+        reply_markup: { remove_keyboard: true },
+      });
     }
 
-    (ctx.wizard.state as Record<string, unknown>).channelUrl = url;
-
-    await ctx.reply(
-      "👤 Расскажите о себе: какой у вас опыт в создании контента, сколько работаете в сфере?"
-    );
-    return ctx.wizard.next();
-  },
-
-  // Step 4: About self → ask referral source
-  async (ctx) => {
-    if (!ctx.message || !("text" in ctx.message)) {
-      await ctx.reply("❌ Пожалуйста, ответьте текстом.");
-      return;
-    }
-
-    (ctx.wizard.state as Record<string, unknown>).aboutSelf = ctx.message.text.trim();
-
-    await ctx.reply(
-      "📢 Откуда вы узнали о нашем проекте?"
-    );
-    return ctx.wizard.next();
-  },
-
-  // Step 5: Referral source → optional comment
-  async (ctx) => {
-    if (!ctx.message || !("text" in ctx.message)) {
-      await ctx.reply("❌ Пожалуйста, ответьте текстом.");
-      return;
-    }
-
-    (ctx.wizard.state as Record<string, unknown>).referralSource = ctx.message.text.trim();
-
-    await ctx.reply(
-      "💬 Хотите добавить что-то ещё? (или отправьте /skip)"
-    );
-    return ctx.wizard.next();
-  },
-
-  // Step 6: Confirm and submit
-  async (ctx) => {
-    if (!ctx.message || !("text" in ctx.message)) return;
-    if (!ctx.dbUser) return;
-
-    const state = ctx.wizard.state as Record<string, unknown>;
-    const comment = ctx.message.text === "/skip" ? undefined : ctx.message.text;
-
-    const app = await ctx.services.applications.create({
-      userId: ctx.dbUser.id,
-      platformId: state.platformId as number,
-      channelUrl: state.channelUrl as string,
-      aboutSelf: state.aboutSelf as string,
-      referralSource: state.referralSource as string,
-      comment,
-    });
-
-    // Notify admins who can review applications
-    const name = ctx.dbUser.username ? `@${ctx.dbUser.username}` : ctx.dbUser.firstName;
-    const adminUrl = process.env.ADMIN_URL ?? "";
-    const adminLink = adminUrl ? `\n\n<a href="${adminUrl}/applications">Открыть в админке</a>` : "";
-    await notifyAdmins(
-      ctx.services,
-      "applications.review",
-      `<b>Новая заявка #${app.id}</b>\n\nОт: ${name}\nКанал: ${state.channelUrl as string}${adminLink}`
-    );
-
-    const status = await getMemberStatus(ctx);
-    await ctx.reply(
-      `✅ Заявка #${app.id} отправлена!\n\n⏳ Ожидайте рассмотрения администратором.`,
-      getMainKeyboard(ctx.dbUser.role as UserRole, status)
-    );
     return ctx.scene.leave();
   }
 );
 
-applicationScene.action("cancel", async (ctx) => {
-  await ctx.answerCbQuery();
-  await ctx.reply("❌ Заявка отменена.");
+// Allow cancellation at any step
+applicationScene.command("cancel", async (ctx) => {
+  await ctx.reply(t("application.cancelled"), {
+    reply_markup: { remove_keyboard: true },
+  });
   return ctx.scene.leave();
 });

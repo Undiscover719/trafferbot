@@ -1,0 +1,89 @@
+{
+  "start": {
+    "welcome_default": "Welcome! 🎬",
+    "new_hint": "\n\nTo get started, submit a membership application.",
+    "pending_hint": "\n\n⏳ Your application is under review. Please wait for an administrator's decision."
+  },
+  "menu": {
+    "already_member": "✅ You are already on the team!",
+    "application_pending": "⏳ You already have an application under review.",
+    "not_member": "❌ You are not on the team yet. Submit an application and wait for approval.",
+    "application_status_pending": "⏳ Your application #{{id}} is under review.\n\nPlease wait for an administrator's decision.",
+    "application_status_approved": "✅ Your application has been approved! You are on the team.",
+    "application_status_none": "You have no active applications. Submit a new one.",
+    "balance_text": "💰 *Your balance:* {{balance}}\n📈 *Total earned:* {{totalEarned}}\n\nClick the button below to withdraw funds.",
+    "balance_withdraw_button": "💸 Withdraw funds",
+    "referral_header": "👥 *Referral system*",
+    "referral_link": "🔗 Your link: `{{link}}`",
+    "referral_invited": "👤 Invited: {{count}}",
+    "referral_earned": "💰 Earned from referrals: {{amount}}",
+    "referral_list_header": "*Your referrals:*",
+    "stats_header": "📊 *Your statistics*",
+    "stats_videos": "📹 Videos approved: {{count}}",
+    "stats_balance": "💰 Balance: {{balance}}",
+    "stats_total_earned": "📈 Total earned: {{totalEarned}}",
+    "stats_withdrawn": "💸 Withdrawn: {{withdrawn}}",
+    "leaderboard_empty": "🏆 The leaderboard is empty.",
+    "leaderboard_header": "🏆 *Top traffers*",
+    "history_header": "📜 *Your history*",
+    "history_withdrawals_header": "*Withdrawals:*",
+    "history_withdrawals_empty": "_No withdrawals yet_",
+    "history_videos_header": "*Videos:*",
+    "history_videos_empty": "_No videos yet_",
+    "settings_header": "⚙️ *Settings*",
+    "settings_leaderboard_hidden": "Leaderboard: You are hidden",
+    "settings_leaderboard_visible": "Leaderboard: You are visible",
+    "settings_leaderboard_show_btn": "👁 Show in leaderboard",
+    "settings_leaderboard_hide_btn": "🙈 Hide from leaderboard",
+    "links_empty": "🔗 No links have been configured yet.",
+    "links_header": "🔗 *Project links:*"
+  },
+  "application": {
+    "prompt_platform": "Which platform are you applying for?\n\nSelect from the list below:",
+    "no_platforms": "❌ No platforms available at the moment. Please try again later.",
+    "prompt_links": "Please send your content links (one per line):",
+    "prompt_comment": "Add a comment to your application (or press the button to skip):",
+    "skip_button": "Skip",
+    "submitted": "✅ Your application has been submitted!\n\nApplication #{{id}}\nPlatform: {{platform}}\n\nWe will notify you once it has been reviewed.",
+    "cancelled": "❌ Application cancelled.",
+    "error": "An error occurred. Please try again.",
+    "already_pending": "⏳ You already have an application under review.",
+    "already_approved": "✅ You are already on the team!"
+  },
+  "video": {
+    "prompt_platform": "Select the platform for your video:",
+    "no_platforms": "❌ No platforms available. Please try again later.",
+    "prompt_video": "Send your video (as a file or video message):",
+    "prompt_link": "Send the link to your video:",
+    "prompt_comment": "Add a comment (or press Skip):",
+    "skip_button": "Skip",
+    "submitted": "✅ Your video has been submitted for review!\n\nSubmission #{{id}}\nPlatform: {{platform}}\n\nYou will be notified once it has been reviewed.",
+    "cancelled": "❌ Video submission cancelled.",
+    "error": "An error occurred. Please try again.",
+    "invalid_video": "❌ Please send a valid video file or video message."
+  },
+  "withdrawal": {
+    "no_methods": "❌ No withdrawal methods are available at the moment.",
+    "prompt_method": "Select a withdrawal method:",
+    "prompt_amount": "Enter the amount you wish to withdraw:\n\n💰 Available balance: {{balance}}",
+    "prompt_details": "Enter your payment details (e.g. wallet address or card number):",
+    "insufficient_balance": "❌ Insufficient balance. Your current balance is {{balance}}.",
+    "invalid_amount": "❌ Please enter a valid amount greater than 0.",
+    "min_amount": "❌ Minimum withdrawal amount is {{min}}.",
+    "submitted": "✅ Withdrawal request submitted!\n\nAmount: {{amount}}\nMethod: {{method}}\nDetails: {{details}}\n\nYou will be notified once it has been processed.",
+    "cancelled": "❌ Withdrawal cancelled.",
+    "error": "An error occurred. Please try again."
+  },
+  "notify": {
+    "application_approved": "✅ Your application #{{id}} has been approved! Welcome to the team!",
+    "application_rejected": "❌ Your application #{{id}} has been rejected.",
+    "video_approved": "✅ Your video submission #{{id}} has been approved! Earned: {{amount}}",
+    "video_rejected": "❌ Your video submission #{{id}} has been rejected.",
+    "withdrawal_completed": "💸 Your withdrawal of {{amount}} via {{method}} has been completed.",
+    "withdrawal_rejected": "❌ Your withdrawal request of {{amount}} has been rejected."
+  },
+  "errors": {
+    "generic": "An error occurred. Please try again later.",
+    "unauthorized": "❌ You are not authorized to perform this action."
+  }
+}

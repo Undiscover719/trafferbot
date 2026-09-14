@@ -1,27 +1,23 @@
-import { config } from "dotenv";
-import { resolve, dirname } from "path";
-import { fileURLToPath } from "url";
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-config({ path: resolve(__dirname, "../../.env") });
-
-function normalizeBasePath(raw) {
-  if (!raw || raw === "/") return "";
-  const withSlash = raw.startsWith("/") ? raw : `/${raw}`;
-  return withSlash.replace(/\/$/, "");
-}
-
-const adminBasePath = normalizeBasePath(
-  process.env.ADMIN_BASE_PATH ?? process.env.NEXT_PUBLIC_ADMIN_BASE_PATH ?? ""
-);
-
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  ...(adminBasePath ? { basePath: adminBasePath } : {}),
-  env: {
-    NEXT_PUBLIC_ADMIN_BASE_PATH: adminBasePath,
+  // i18n — English is the sole default locale.
+  // Next.js App Router does not use the legacy `i18n` key; locale is handled
+  // via the `lang` attribute on <html> and, if needed, middleware. This block
+  // is kept here as an explicit declaration of intent and for any tooling that
+  // reads it (e.g. linters, future Pages Router usage).
+  //
+  // For App Router locale routing, add a `middleware.ts` at the project root
+  // that rewrites paths based on the `Accept-Language` header.
+
+  // Allow the panel to be served under a sub-path (ADMIN_BASE_PATH).
+  // Falls back to "" (root) when the env var is not set.
+  basePath: process.env.ADMIN_BASE_PATH ?? "",
+
+  // Trust the reverse-proxy headers so NextAuth and redirects work correctly
+  // behind nginx / Caddy.
+  experimental: {
+    // Turbopack is enabled via CLI flag (`--turbopack`); no config needed here.
   },
-  skipTrailingSlashRedirect: true,
 };
 
 export default nextConfig;

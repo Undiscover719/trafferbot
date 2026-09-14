@@ -1,37 +1,51 @@
-import { config } from "dotenv";
-import { resolve } from "path";
-config({ path: resolve(import.meta.dirname, "../../../.env") });
-import { createBot } from "./bot";
-import { startNotificationPoller } from "./notification-poller";
-import { NotificationService, SettingsService, SETTINGS_KEYS, loadPermissions } from "@trafferbot/shared";
+import "dotenv/config";
+import { createBot } from "./bot.js";
 import { createDb } from "@trafferbot/db";
+import { NotificationService, SettingsService } from "@trafferbot/shared";
+import { startNotificationPoller } from "./notification-poller.js";
+import { loadPermissions } from "@trafferbot/shared";
+import { preloadLocales } from "./i18n/index.js";
 
-const token = process.env.BOT_TOKEN;
-if (!token) {
-  throw new Error("BOT_TOKEN is not set");
+const BOT_TOKEN = process.env.BOT_TOKEN;
+const DATABASE_URL = process.env.DATABASE_URL;
+
+if (!BOT_TOKEN) {
+  console.error("❌ BOT_TOKEN is not set");
+  process.exit(1);
 }
 
-const databaseUrl = process.env.DATABASE_URL;
-if (!databaseUrl) {
-  throw new Error("DATABASE_URL is not set");
+if (!DATABASE_URL) {
+  console.error("❌ DATABASE_URL is not set");
+  process.exit(1);
 }
 
-const bot = createBot(token, databaseUrl);
+// Pre-load i18n locale files before bot starts
+preloadLocales(["en"]);
 
-const db = createDb(databaseUrl);
+const db = createDb(DATABASE_URL);
+const bot = createBot(BOT_TOKEN, DATABASE_URL);
+
 const notificationService = new NotificationService(db);
 const settingsService = new SettingsService(db);
-const stopPoller = startNotificationPoller(bot, notificationService);
 
-// Load permissions from DB, then start bot
-(async () => {
-  const dbPerms = await settingsService.get<Record<string, string[]>>(SETTINGS_KEYS.ROLE_PERMISSIONS);
-  if (dbPerms) loadPermissions(dbPerms);
+// Load role permissions from DB settings
+loadPermissions(settingsService).catch((err) => {
+  console.warn("⚠️ Could not load permissions from DB:", err);
+});
 
-  bot.launch(() => {
-    console.log("Bot started");
+// Start notification poller
+startNotificationPoller(bot, notificationService);
+
+bot
+  .launch()
+  .then(() => {
+    console.log("🤖 Bot launched successfully");
+  })
+  .catch((err) => {
+    console.error("❌ Failed to launch bot:", err);
+    process.exit(1);
   });
-})();
 
-process.once("SIGINT", () => { stopPoller(); bot.stop("SIGINT"); });
-process.once("SIGTERM", () => { stopPoller(); bot.stop("SIGTERM"); });
+// Graceful stop
+process.once("SIGINT", () => bot.stop("SIGINT"));
+process.once("SIGTERM", () => bot.stop("SIGTERM"));
