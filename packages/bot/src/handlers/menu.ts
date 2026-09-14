@@ -6,12 +6,13 @@ import {
   formatCurrency,
   SETTINGS_KEYS,
 } from "@trafferbot/shared";
+import { t } from "../i18n/index";
 
 async function requireApproved(ctx: BotContext): Promise<boolean> {
   if (!ctx.dbUser) return false;
   const status = await getMemberStatus(ctx);
   if (status !== "approved") {
-    await ctx.reply("❌ Вы пока не в команде. Подайте заявку и дождитесь одобрения.");
+    await ctx.reply(t("menu.not_member"));
     return false;
   }
   return true;
@@ -24,11 +25,11 @@ export function registerMenuHandlers(bot: Telegraf<BotContext>) {
 
     const status = await getMemberStatus(ctx);
     if (status === "approved") {
-      await ctx.reply("✅ Вы уже в команде!");
+      await ctx.reply(t("menu.already_member"));
       return;
     }
     if (status === "pending") {
-      await ctx.reply("⏳ У вас уже есть заявка на рассмотрении.");
+      await ctx.reply(t("menu.application_pending"));
       return;
     }
 
@@ -41,19 +42,17 @@ export function registerMenuHandlers(bot: Telegraf<BotContext>) {
 
     const pending = await ctx.services.applications.findPendingByUser(ctx.dbUser.id);
     if (pending) {
-      await ctx.reply(
-        `⏳ Ваша заявка #${pending.id} на рассмотрении.\n\nОжидайте решения администратора.`
-      );
+      await ctx.reply(t("menu.application_status_pending", { id: pending.id }));
       return;
     }
 
     const approved = await ctx.services.applications.findApprovedByUser(ctx.dbUser.id);
     if (approved) {
-      await ctx.reply("✅ Ваша заявка одобрена! Вы в команде.");
+      await ctx.reply(t("menu.application_status_approved"));
       return;
     }
 
-    await ctx.reply("У вас нет активных заявок. Подайте новую.");
+    await ctx.reply(t("menu.application_status_none"));
   });
 
   // Submit video — only approved
@@ -67,18 +66,16 @@ export function registerMenuHandlers(bot: Telegraf<BotContext>) {
     if (!(await requireApproved(ctx))) return;
     if (!ctx.dbUser) return;
 
-    const text = [
-      `💰 *Ваш баланс:* ${formatCurrency(ctx.dbUser.balance)}`,
-      `📈 *Всего заработано:* ${formatCurrency(ctx.dbUser.totalEarned)}`,
-      "",
-      "Для вывода средств нажмите кнопку ниже.",
-    ].join("\n");
+    const text = t("menu.balance_text", {
+      balance: formatCurrency(ctx.dbUser.balance),
+      totalEarned: formatCurrency(ctx.dbUser.totalEarned),
+    });
 
     await ctx.reply(text, {
       parse_mode: "Markdown",
       reply_markup: {
         inline_keyboard: [
-          [{ text: "💸 Вывести средства", callback_data: "withdrawal_start" }],
+          [{ text: t("menu.balance_withdraw_button"), callback_data: "withdrawal_start" }],
         ],
       },
     });
@@ -103,15 +100,15 @@ export function registerMenuHandlers(bot: Telegraf<BotContext>) {
     const refLink = `https://t.me/${botInfo.username}?start=ref_${ctx.dbUser.referralCode}`;
 
     const lines = [
-      "👥 *Реферальная система*",
+      t("menu.referral_header"),
       "",
-      `🔗 Ваша ссылка: \`${refLink}\``,
-      `👤 Приглашено: ${referrals.length}`,
-      `💰 Заработано с рефералов: ${formatCurrency(totalEarned)}`,
+      t("menu.referral_link", { link: refLink }),
+      t("menu.referral_invited", { count: referrals.length }),
+      t("menu.referral_earned", { amount: formatCurrency(totalEarned) }),
     ];
 
     if (referrals.length > 0) {
-      lines.push("", "*Ваши рефералы:*");
+      lines.push("", t("menu.referral_list_header"));
       referrals.forEach((ref, i) => {
         lines.push(
           `${i + 1}. ${ref.firstName}${ref.username ? ` (@${ref.username})` : ""}`
@@ -131,12 +128,12 @@ export function registerMenuHandlers(bot: Telegraf<BotContext>) {
     const videoCount = await ctx.services.videos.countByUser(ctx.dbUser.id);
 
     const text = [
-      "📊 *Ваша статистика*",
+      t("menu.stats_header"),
       "",
-      `📹 Видео одобрено: ${videoCount}`,
-      `💰 Баланс: ${formatCurrency(ctx.dbUser.balance)}`,
-      `📈 Всего заработано: ${formatCurrency(ctx.dbUser.totalEarned)}`,
-      `💸 Выведено: ${formatCurrency(userStats.totalWithdrawn)}`,
+      t("menu.stats_videos", { count: videoCount }),
+      t("menu.stats_balance", { balance: formatCurrency(ctx.dbUser.balance) }),
+      t("menu.stats_total_earned", { totalEarned: formatCurrency(ctx.dbUser.totalEarned) }),
+      t("menu.stats_withdrawn", { withdrawn: formatCurrency(userStats.totalWithdrawn) }),
     ].join("\n");
 
     await ctx.reply(text, { parse_mode: "Markdown" });
@@ -149,12 +146,12 @@ export function registerMenuHandlers(bot: Telegraf<BotContext>) {
     const top = await ctx.services.users.getLeaderboard(10);
 
     if (top.length === 0) {
-      await ctx.reply("🏆 Лидерборд пока пуст.");
+      await ctx.reply(t("menu.leaderboard_empty"));
       return;
     }
 
     const medals = ["🥇", "🥈", "🥉"];
-    const lines = ["🏆 *Топ трафферов*", ""];
+    const lines = [t("menu.leaderboard_header"), ""];
 
     top.forEach((user, i) => {
       const prefix = medals[i] ?? `${i + 1}.`;
@@ -175,10 +172,10 @@ export function registerMenuHandlers(bot: Telegraf<BotContext>) {
       ctx.services.videos.listByUser(ctx.dbUser.id),
     ]);
 
-    const lines = ["📜 *Ваша история*", ""];
+    const lines = [t("menu.history_header"), ""];
 
     if (withdrawalsList.length > 0) {
-      lines.push("*Выводы:*");
+      lines.push(t("menu.history_withdrawals_header"));
       const recent = withdrawalsList.slice(0, 10);
       const statusEmoji: Record<string, string> = {
         pending: "⏳",
@@ -188,17 +185,17 @@ export function registerMenuHandlers(bot: Telegraf<BotContext>) {
       };
       for (const w of recent) {
         const emoji = statusEmoji[w.status] ?? "❓";
-        const date = new Date(w.createdAt).toLocaleDateString("ru");
+        const date = new Date(w.createdAt).toLocaleDateString("en");
         lines.push(`${emoji} ${formatCurrency(w.amount)} — ${w.method.name} (${date})`);
       }
     } else {
-      lines.push("_Выводов пока нет_");
+      lines.push(t("menu.history_withdrawals_empty"));
     }
 
     lines.push("");
 
     if (videosList.length > 0) {
-      lines.push("*Видео:*");
+      lines.push(t("menu.history_videos_header"));
       const recent = videosList.slice(0, 10);
       const statusEmoji: Record<string, string> = {
         pending: "⏳",
@@ -207,12 +204,12 @@ export function registerMenuHandlers(bot: Telegraf<BotContext>) {
       };
       for (const v of recent) {
         const emoji = statusEmoji[v.status] ?? "❓";
-        const date = new Date(v.createdAt).toLocaleDateString("ru");
+        const date = new Date(v.createdAt).toLocaleDateString("en");
         const earned = v.earnings ? ` +${formatCurrency(v.earnings)}` : "";
         lines.push(`${emoji} ${v.platform.name} (${date})${earned}`);
       }
     } else {
-      lines.push("_Видео пока нет_");
+      lines.push(t("menu.history_videos_empty"));
     }
 
     await ctx.reply(lines.join("\n"), { parse_mode: "Markdown" });
@@ -225,13 +222,13 @@ export function registerMenuHandlers(bot: Telegraf<BotContext>) {
 
     const hidden = ctx.dbUser.hideFromLeaderboard;
     await ctx.reply(
-      `⚙️ *Настройки*\n\nЛидерборд: ${hidden ? "Вы скрыты" : "Вы видны"}`,
+      `${t("menu.settings_header")}\n\n${hidden ? t("menu.settings_leaderboard_hidden") : t("menu.settings_leaderboard_visible")}`,
       {
         parse_mode: "Markdown",
         reply_markup: {
           inline_keyboard: [
             [{
-              text: hidden ? "👁 Показать в лидерборде" : "🙈 Скрыть из лидерборда",
+              text: hidden ? t("menu.settings_leaderboard_show_btn") : t("menu.settings_leaderboard_hide_btn"),
               callback_data: "toggle_leaderboard",
             }],
           ],
@@ -246,13 +243,13 @@ export function registerMenuHandlers(bot: Telegraf<BotContext>) {
 
     const newValue = await ctx.services.users.toggleLeaderboardVisibility(ctx.dbUser.id);
     await ctx.editMessageText(
-      `⚙️ *Настройки*\n\nЛидерборд: ${newValue ? "Вы скрыты" : "Вы видны"}`,
+      `${t("menu.settings_header")}\n\n${newValue ? t("menu.settings_leaderboard_hidden") : t("menu.settings_leaderboard_visible")}`,
       {
         parse_mode: "Markdown",
         reply_markup: {
           inline_keyboard: [
             [{
-              text: newValue ? "👁 Показать в лидерборде" : "🙈 Скрыть из лидерборда",
+              text: newValue ? t("menu.settings_leaderboard_show_btn") : t("menu.settings_leaderboard_hide_btn"),
               callback_data: "toggle_leaderboard",
             }],
           ],
@@ -268,7 +265,7 @@ export function registerMenuHandlers(bot: Telegraf<BotContext>) {
     >(SETTINGS_KEYS.PROJECT_LINKS);
 
     if (!links || links.length === 0) {
-      await ctx.reply("🔗 Ссылки пока не настроены.");
+      await ctx.reply(t("menu.links_empty"));
       return;
     }
 
@@ -276,7 +273,7 @@ export function registerMenuHandlers(bot: Telegraf<BotContext>) {
       { text: link.name, url: link.url },
     ]);
 
-    await ctx.reply("🔗 *Ссылки проекта:*", {
+    await ctx.reply(t("menu.links_header"), {
       parse_mode: "Markdown",
       reply_markup: { inline_keyboard: buttons },
     });

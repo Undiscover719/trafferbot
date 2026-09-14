@@ -1,155 +1,129 @@
 import { Scenes, Markup } from "telegraf";
 import type { BotContext } from "../context";
 import { formatCurrency } from "@trafferbot/shared";
-import { notifyAdmins } from "../utils/notify-admins";
+import { t } from "../i18n/index";
 
 export const withdrawalScene = new Scenes.WizardScene<BotContext>(
   "withdrawal",
 
-  // Step 1: Select withdrawal method
+  // Step 0 — select withdrawal method
   async (ctx) => {
     if (!ctx.dbUser) return ctx.scene.leave();
 
-    if (parseFloat(ctx.dbUser.balance) <= 0) {
-      await ctx.reply("❌ У вас нулевой баланс.");
-      return ctx.scene.leave();
-    }
-
-    const methods = await ctx.services.withdrawals.getMethods(true);
-    if (methods.length === 0) {
-      await ctx.reply("❌ Нет доступных способов вывода.");
+    const methods = await ctx.services.withdrawals.listMethods();
+    if (!methods.length) {
+      await ctx.reply(t("withdrawal.no_methods"));
       return ctx.scene.leave();
     }
 
     const buttons = methods.map((m) => [
-      Markup.button.callback(
-        `${m.name} (мин. ${formatCurrency(m.minAmount)})`,
-        `wm_${m.id}`
-      ),
+      Markup.button.callback(m.name, `wmethod_${m.id}`),
     ]);
-    buttons.push([Markup.button.callback("❌ Отмена", "w_cancel")]);
+    await ctx.reply(t("withdrawal.prompt_method"), Markup.inlineKeyboard(buttons));
 
-    await ctx.reply(
-      `💸 *Вывод средств*\n\nВаш баланс: ${formatCurrency(ctx.dbUser.balance)}\n\nВыберите способ вывода:`,
-      {
-        parse_mode: "Markdown",
-        ...Markup.inlineKeyboard(buttons),
-      }
-    );
     return ctx.wizard.next();
   },
 
-  // Step 2: Enter amount
+  // Step 1 — receive method, ask for amount
   async (ctx) => {
-    if (!ctx.callbackQuery || !("data" in ctx.callbackQuery)) return;
+    if (!ctx.callbackQuery || !("data" in ctx.callbackQuery)) {
+      await ctx.reply(t("withdrawal.prompt_method"));
+      return;
+    }
 
     const data = ctx.callbackQuery.data;
+    if (!data.startsWith("wmethod_")) return;
+
+    const methodId = parseInt(data.replace("wmethod_", ""), 10);
+    ctx.scene.session.methodId = methodId;
+
     await ctx.answerCbQuery();
 
-    if (data === "w_cancel") {
-      await ctx.reply("❌ Отменено.");
-      return ctx.scene.leave();
-    }
-
-    const methodId = parseInt(data.replace("wm_", ""), 10);
-    if (isNaN(methodId)) return;
-
-    (ctx.wizard.state as Record<string, unknown>).methodId = methodId;
-
-    await ctx.reply("💵 Введите сумму для вывода:");
-    return ctx.wizard.next();
-  },
-
-  // Step 3: Enter requisites
-  async (ctx) => {
-    if (!ctx.message || !("text" in ctx.message)) {
-      await ctx.reply("❌ Введите сумму числом.");
-      return;
-    }
-    if (!ctx.dbUser) return;
-
-    const amount = parseFloat(ctx.message.text.trim());
-    if (isNaN(amount) || amount <= 0) {
-      await ctx.reply("❌ Некорректная сумма. Попробуйте ещё раз:");
-      return;
-    }
-
-    if (amount > parseFloat(ctx.dbUser.balance)) {
-      await ctx.reply(
-        `❌ Недостаточно средств. Ваш баланс: ${formatCurrency(ctx.dbUser.balance)}`
-      );
-      return;
-    }
-
-    // Check min amount for method
-    const state = ctx.wizard.state as Record<string, unknown>;
-    const methods = await ctx.services.withdrawals.getMethods(true);
-    const method = methods.find((m) => m.id === state.methodId);
-    if (method && amount < parseFloat(method.minAmount)) {
-      await ctx.reply(
-        `❌ Минимальная сумма для ${method.name}: ${formatCurrency(method.minAmount)}`
-      );
-      return;
-    }
-
-    state.amount = amount.toFixed(2);
-
-    await ctx.reply("📋 Введите реквизиты (кошелёк, номер карты и т.д.):");
-    return ctx.wizard.next();
-  },
-
-  // Step 4: Confirm and create
-  async (ctx) => {
-    if (!ctx.message || !("text" in ctx.message)) {
-      await ctx.reply("❌ Введите реквизиты текстом.");
-      return;
-    }
-    if (!ctx.dbUser) return;
-
-    const requisites = ctx.message.text.trim();
-    if (requisites.length < 1) {
-      await ctx.reply("❌ Реквизиты не могут быть пустыми.");
-      return;
-    }
-
-    const state = ctx.wizard.state as Record<string, unknown>;
-
-    const withdrawal = await ctx.services.withdrawals.create({
-      userId: ctx.dbUser.id,
-      methodId: state.methodId as number,
-      amount: state.amount as string,
-      requisites,
-    });
-
-    // Subtract from balance
-    await ctx.services.users.updateBalance(
-      ctx.dbUser.id,
-      state.amount as string,
-      "subtract"
-    );
-
-    // Notify admins who can process withdrawals
-    const name = ctx.dbUser.username ? `@${ctx.dbUser.username}` : ctx.dbUser.firstName;
-    const adminUrl = process.env.ADMIN_URL ?? "";
-    const adminLink = adminUrl ? `\n\n<a href="${adminUrl}/withdrawals">Открыть в админке</a>` : "";
-    await notifyAdmins(
-      ctx.services,
-      "withdrawals.process",
-      `<b>Заявка на вывод #${withdrawal.id}</b>\n\nОт: ${name}\nСумма: ${formatCurrency(state.amount as string)}\nРеквизиты: ${requisites}${adminLink}`
-    );
-
+    const balance = ctx.dbUser?.balance ?? 0;
     await ctx.reply(
-      `✅ Заявка на вывод #${withdrawal.id} создана!\n\n` +
-        `💵 Сумма: ${formatCurrency(state.amount as string)}\n` +
-        `📋 Реквизиты: ${requisites}\n\n` +
-        `Ожидайте обработки администратором.`
+      t("withdrawal.prompt_amount", { balance: formatCurrency(balance) })
     );
+
+    return ctx.wizard.next();
+  },
+
+  // Step 2 — receive amount, ask for payment details
+  async (ctx) => {
+    if (!ctx.dbUser) return ctx.scene.leave();
+    if (!ctx.message || !("text" in ctx.message)) {
+      await ctx.reply(t("withdrawal.invalid_amount"));
+      return;
+    }
+
+    const amount = parseFloat(ctx.message.text.replace(",", "."));
+    if (isNaN(amount) || amount <= 0) {
+      await ctx.reply(t("withdrawal.invalid_amount"));
+      return;
+    }
+
+    const minAmount = 1; // TODO: pull from settings
+    if (amount < minAmount) {
+      await ctx.reply(t("withdrawal.min_amount", { min: formatCurrency(minAmount) }));
+      return;
+    }
+
+    if (amount > (ctx.dbUser.balance ?? 0)) {
+      await ctx.reply(
+        t("withdrawal.insufficient_balance", {
+          balance: formatCurrency(ctx.dbUser.balance ?? 0),
+        })
+      );
+      return;
+    }
+
+    ctx.scene.session.amount = amount;
+    await ctx.reply(t("withdrawal.prompt_details"));
+
+    return ctx.wizard.next();
+  },
+
+  // Step 3 — receive details, create withdrawal request
+  async (ctx) => {
+    if (!ctx.dbUser) return ctx.scene.leave();
+    if (!ctx.message || !("text" in ctx.message)) {
+      await ctx.reply(t("withdrawal.prompt_details"));
+      return;
+    }
+
+    const details = ctx.message.text;
+
+    try {
+      const methods = await ctx.services.withdrawals.listMethods();
+      const method = methods.find((m) => m.id === ctx.scene.session.methodId);
+
+      const withdrawal = await ctx.services.withdrawals.create({
+        userId: ctx.dbUser.id,
+        methodId: ctx.scene.session.methodId,
+        amount: ctx.scene.session.amount,
+        details,
+      });
+
+      await ctx.reply(
+        t("withdrawal.submitted", {
+          amount: formatCurrency(withdrawal.amount),
+          method: method?.name ?? String(ctx.scene.session.methodId),
+          details,
+        }),
+        { reply_markup: { remove_keyboard: true } }
+      );
+    } catch {
+      await ctx.reply(t("withdrawal.error"), {
+        reply_markup: { remove_keyboard: true },
+      });
+    }
+
     return ctx.scene.leave();
   }
 );
 
-withdrawalScene.action("w_cancel", async (ctx) => {
-  await ctx.answerCbQuery();
-  await ctx.reply("❌ Отменено.");
+withdrawalScene.command("cancel", async (ctx) => {
+  await ctx.reply(t("withdrawal.cancelled"), {
+    reply_markup: { remove_keyboard: true },
+  });
   return ctx.scene.leave();
 });
